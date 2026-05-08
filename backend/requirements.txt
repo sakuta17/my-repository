@@ -16,3 +16,4 @@ redis
 aioredis
 numpy
 pydantic[email]
+httpx
