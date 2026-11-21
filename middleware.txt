@@ -1,0 +1,2661 @@
+================================================================================
+                     SET-1 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+
+--------------------------------------------------------------------------------
+Q1. Docker Compose – Online Event Management System Using Tomcat and NGINX [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Tomcat (port 8080) and NGINX (port 80) reverse proxy using Docker Compose.
+
+STEP 1: Create a dedicated working directory
+Execute in terminal:
+  mkdir -p ~/set1_task1
+  cd ~/set1_task1
+
+STEP 2: Create the NGINX configuration file (nginx.conf)
+Execute in terminal:
+  cat << 'EOF' > nginx.conf
+events { worker_connections 1024; }
+
+http {
+    upstream tomcat_server {
+        server tomcat:8080;
+    }
+
+    server {
+        listen 80;
+        server_name localhost;
+
+        location / {
+            proxy_pass http://tomcat_server;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
+EOF
+
+STEP 3: Create the Docker Compose file (docker-compose.yml)
+Execute in terminal:
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  tomcat:
+    image: tomcat:9.0-jdk11-openjdk-slim
+    container_name: oems-tomcat
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - oems-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: oems-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - tomcat
+    networks:
+      - oems-network
+
+networks:
+  oems-network:
+    driver: bridge
+EOF
+
+STEP 4: Run the Docker Compose application
+Execute in terminal:
+  docker compose up -d
+
+STEP 5: Verification commands
+  docker compose ps
+  docker network ls
+  docker network inspect set1_task1_oems-network
+  docker compose logs nginx
+  docker compose logs tomcat
+
+STEP 6: Test in browser or curl
+  curl -I http://localhost
+  # Or open browser: http://localhost:80
+
+WHAT TO SHOW TO MAM:
+1. Terminal: Run `docker compose ps`. Show both `oems-tomcat` (port 8080) and `oems-nginx` (port 80) with status "Up".
+2. Terminal: Run `docker network inspect <network_name>` to show both containers attached to the custom bridge network `oems-network`.
+3. Browser: Open `http://localhost:80` (or `http://<machine-ip>:80`). Show that visiting NGINX on port 80 forwards to Tomcat's default landing page or response.
+4. Terminal: Run `docker compose logs nginx` to show HTTP 200/302 access logs from NGINX proxying to Tomcat.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q1.1: NGINX container unable to communicate with Tomcat container:
+  - Cause: Containers not on the same Docker custom network, wrong service name in `nginx.conf` (must use service name `tomcat`, not localhost or container IP), or Tomcat container crashed.
+  - Troubleshooting:
+    1. Check network: `docker inspect <container_id>` to confirm both share `oems-network`.
+    2. Check service name: ping tomcat from nginx using `docker exec -it oems-nginx ping tomcat`.
+    3. Check port: Ensure Tomcat is listening on port 8080 inside container.
+Q1.2: 502 Bad Gateway error when accessing via NGINX:
+  - Cause: Tomcat container is down, still starting up, or listening on a different port than upstream configured in nginx.
+  - Troubleshooting:
+    1. Check Tomcat status: `docker compose ps` and `docker compose logs tomcat`.
+    2. Check upstream address: Verify `proxy_pass http://tomcat:8080;` in `nginx.conf`.
+    3. Check Nginx error logs: `docker compose logs nginx` to see "Connection refused".
+Q1.3: Port 80 already in use on host machine:
+  - Solution: In `docker-compose.yml`, change NGINX host port mapping under `ports:` from `"80:80"` to `"8081:80"` (or `"8090:80"`). The internal container port stays 80, only the host port changes.
+
+--------------------------------------------------------------------------------
+Q2. AWS EC2 Deployment – Online Event Management Maven Web Application [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Maven Web Application (https://github.com/haleema91/LAB-INTERNAL-II-OEMS.git) on AWS Ubuntu EC2 with Tomcat on port 9090.
+
+STEP 1: Launch EC2 Instance (AWS Console)
+1. OS: Ubuntu 22.04 LTS / 24.04 LTS (t2.micro / free tier).
+2. Key Pair: Select or create your .pem key.
+3. Security Group Inbound Rules:
+   - Type: SSH | Port: 22 | Source: 0.0.0.0/0
+   - Type: Custom TCP | Port: 9090 | Source: 0.0.0.0/0
+   - Type: Custom TCP | Port: 8080 | Source: 0.0.0.0/0
+   - Type: HTTP | Port: 80 | Source: 0.0.0.0/0
+
+STEP 2: Connect to EC2 via SSH
+  ssh -i your-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Java, Maven, and Tomcat 9
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y openjdk-17-jdk maven tomcat9
+
+STEP 4: Configure Tomcat to listen on Port 9090 (as per question)
+Execute on EC2:
+  sudo sed -i 's/port="8080"/port="9090"/g' /etc/tomcat9/server.xml
+  sudo systemctl restart tomcat9
+  sudo systemctl status tomcat9
+
+STEP 5: Clone the GitHub Repository and Build WAR
+Execute on EC2:
+  cd ~
+  git clone https://github.com/haleema91/LAB-INTERNAL-II-OEMS.git
+  cd LAB-INTERNAL-II-OEMS
+  mvn clean package
+
+STEP 6: Deploy WAR file to Tomcat webapps
+Execute on EC2:
+  # The built war file is target/OEMS-1.war
+  # Copy and rename to OnlineEventManagement.war for context path /OnlineEventManagement/
+  sudo cp target/OEMS-1.war /var/lib/tomcat9/webapps/OnlineEventManagement.war
+  sudo systemctl restart tomcat9
+
+STEP 7: Access the application in browser
+  http://<EC2-PUBLIC-IP>:9090/OnlineEventManagement/
+
+WHAT TO SHOW TO MAM:
+1. AWS EC2 Console: Show the Running EC2 instance and its Public IPv4 address.
+2. Security Groups Tab: Show the Inbound Rule permitting Custom TCP Port 9090 from 0.0.0.0/0.
+3. EC2 Terminal: Run `mvn clean package` showing `[INFO] BUILD SUCCESS` and the generated WAR file in `target/`.
+4. EC2 Terminal: Run `sudo netstat -tulnp | grep 9090` or `sudo ss -tulnp | grep 9090` showing Tomcat listening on 9090.
+5. Web Browser: Open `http://<EC2-PUBLIC-IP>:9090/OnlineEventManagement/` showing the Online Event Management homepage.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q2.1: Tomcat running successfully, but cannot access via EC2 Public IPv4 on port 9090:
+  - Security Group Changes: Go to AWS Console -> EC2 -> Instances -> Security -> Security Groups -> Edit Inbound Rules -> Add Rule: Custom TCP, Port Range: 9090, Source: Anywhere-IPv4 (0.0.0.0/0) -> Save Rules.
+  - Verification: Run `sudo ss -tulnp | grep 9090` or `curl http://localhost:9090` on EC2 to verify Tomcat is active locally. Check EC2 OS firewall `sudo ufw status`.
+Q2.2: HTTP 404 error accessing `http://<EC2-Public-IP>:9090/OnlineEventManagement/`:
+  - Reasons:
+    1. WAR file name does not match `/OnlineEventManagement/` (e.g. deployed as `OEMS-1.war`, which creates path `/OEMS-1/` instead).
+    2. WAR file failed to unpack in `/var/lib/tomcat9/webapps/`.
+    3. `web.xml` welcome-file-list is missing `index.jsp`.
+  - Troubleshooting: Check Tomcat logs: `sudo tail -n 100 /var/log/tomcat9/catalina.out`. Verify folder exists in `/var/lib/tomcat9/webapps/OnlineEventManagement`.
+Q2.3: `mvn clean package` does not generate WAR in target directory:
+  - Reasons:
+    1. `<packaging>war</packaging>` is missing or set to `jar` in `pom.xml`.
+    2. Missing `src/main/webapp` or `WEB-INF/web.xml`.
+    3. Maven build failed due to compilation errors or dependency download failures.
+  - Troubleshooting: Check Maven console error messages. Run `mvn clean package -X` for debug output. Check `pom.xml` build packaging tag.
+
+--------------------------------------------------------------------------------
+Q3. Jenkins Freestyle Project – Maven Web Project [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Automate building `https://github.com/haleema91/LAB-INTERNAL-II-OEMS.git` using Jenkins Freestyle project with Poll SCM.
+
+STEP 1: Start Jenkins and Open Web Interface
+  Open browser: `http://localhost:8080` (or your Jenkins server IP).
+
+STEP 2: Create New Freestyle Project
+1. Click **New Item** from left sidebar.
+2. Enter Item Name: `OnlineEventManagement`
+3. Select **Freestyle project** and click **OK**.
+
+STEP 3: Configure Source Code Management (SCM)
+1. Select radio button: **Git**
+2. Repository URL: `https://github.com/haleema91/LAB-INTERNAL-II-OEMS.git`
+3. Credentials: None (it is a public repository).
+4. Branch Specifier (blank for 'any'): `*/main` (Note: default branch is `main`).
+
+STEP 4: Configure Build Triggers
+1. Check the box: **Poll SCM**
+2. In the Schedule textarea, enter:
+   `* * * * *`   (or `H/5 * * * *` to poll every 5 minutes).
+
+STEP 5: Configure Build Steps
+1. Click **Add build step** dropdown.
+2. Select **Invoke top-level Maven targets** (or "Execute shell" if Maven plugin isn't linked).
+   - Maven Version: Select your configured Maven (e.g. Maven-3.8 / default)
+   - Goals: `clean package`
+   (If using Execute shell, command is: `mvn clean package`)
+3. Click **Save**.
+
+STEP 6: Execute and Verify Build
+1. Click **Build Now** on the left menu.
+2. In Build History, click on the latest build (e.g. `#1`).
+3. Click **Console Output** to observe the logs.
+4. Verify that the build ends with `BUILD SUCCESS` and `Finished: SUCCESS`.
+
+STEP 7: Setup Pipeline / Dashboard View (if requested by examiner)
+1. Click the `+` icon on the Jenkins main dashboard tab.
+2. Select **Dashboard View** or **Pipeline View**, give it a name, select `OnlineEventManagement` and save.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins Project page for `OnlineEventManagement` showing blue/green success status balls.
+2. **Console Output**: Scroll to the bottom and show:
+   `[INFO] ------------------------------------------------------------------------`
+   `[INFO] BUILD SUCCESS`
+   `[INFO] ------------------------------------------------------------------------`
+   `Finished: SUCCESS`
+3. Click on **Workspace** -> `target/` and show `OEMS-1.war` successfully created.
+4. Jenkins Build Trigger section showing **Poll SCM** configured with schedule.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q3.1: Jenkins Freestyle project unable to fetch source code from GitHub:
+  - Possible Causes: Incorrect repository URL, Git not installed on Jenkins host, incorrect branch (`master` instead of `main`), network/proxy blocking GitHub.
+  - Troubleshooting: Verify Git binary path under Jenkins -> Manage Jenkins -> Tools -> Git. Check repository URL by cloning manually from CLI `git clone <url>`. Ensure branch is specified as `*/main`.
+Q3.2: Jenkins build successful in fetching source code, but WAR file is not generated:
+  - Troubleshooting: Verify build goal is `clean package` (not just `clean compile`). Verify `pom.xml` contains `<packaging>war</packaging>`. Check Console Output for the location of generated artifacts under `workspace/target/`.
+Q3.3: Developer modifies event registration Servlet but introduces compilation error; Jenkins reports FAILED:
+  - Troubleshooting: Open Jenkins -> Click failed build -> **Console Output**. Search for `[ERROR] COMPILATION ERROR`. Identify the file name and line number of syntax error. Fix the Java file, commit & push, and run **Build Now** again.
+
+--------------------------------------------------------------------------------
+Q4. Kubernetes – Application Deployment, Scaling and Monitoring [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Nginx on Minikube with 2 replicas, expose NodePort on 6060, scale to 3 replicas, verify pods/services, and run Nagios Core on Docker.
+
+STEP 1: Start Minikube
+Execute in terminal:
+  minikube start --driver=docker
+
+STEP 2: Create Kubernetes Deployment with 2 replicas
+Execute in terminal:
+  kubectl create deployment nginx-deploy --image=nginx --replicas=2
+
+STEP 3: Expose Deployment using NodePort Service with port 6060
+Execute in terminal:
+  kubectl expose deployment nginx-deploy --type=NodePort --port=6060 --target-port=80 --name=nginx-service
+
+STEP 4: Scale Deployment from 2 to 3 replicas
+Execute in terminal:
+  kubectl scale deployment nginx-deploy --replicas=3
+
+STEP 5: Verify Deployment, Pods, and Services
+Execute in terminal:
+  kubectl get deployments
+  kubectl get pods -o wide
+  kubectl get svc nginx-service
+  minikube service nginx-service --url
+
+STEP 6: Test Access in Browser
+  # Run in terminal to open browser directly:
+  minikube service nginx-service
+  # Or use port forwarding if needed:
+  kubectl port-forward svc/nginx-service 6060:6060
+
+STEP 7: Install and Configure Nagios Core using Docker
+Execute in terminal:
+  docker run -d --name nagios4 -p 8085:80 jasonrivers/nagios:latest
+  docker ps | grep nagios4
+
+STEP 8: Access Nagios Web Interface
+  Open browser: http://localhost:8085
+  Credentials:
+    Username: nagiosadmin
+    Password: nagios
+
+WHAT TO SHOW TO MAM:
+1. Terminal: Run `kubectl get deployments`. Show `nginx-deploy` with `READY 3/3`, `UP-TO-DATE 3`, `AVAILABLE 3`.
+2. Terminal: Run `kubectl get pods -o wide`. Show all 3 pods running in `Running` status on the minikube node.
+3. Terminal: Run `kubectl get svc nginx-service`. Show NodePort service exposing port 6060 mapped to target port 80.
+4. Browser: Show Nginx "Welcome to nginx!" page opening via the Minikube URL.
+5. Browser: Show Nagios Core web interface (`http://localhost:8085`), click **Hosts** and **Services** in the left menu to show monitoring status dashboard.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q4.1: Increasing replicas from 2 to 5 causes some Pods to remain in "Pending" state:
+  - Reasons: Insufficient CPU or memory resources on the Minikube node; node reached maximum pod limit; resource quotas exceeded.
+  - Troubleshooting:
+    Run `kubectl describe pod <pending-pod-name>` and inspect the "Events:" section (look for `FailedScheduling: 0/1 nodes are available: insufficient cpu/memory`).
+    Increase minikube resources: `minikube start --cpus=4 --memory=8192`.
+Q4.2: Customer cannot access application through browser even though Pods are running:
+  - Reasons: Minikube runs inside a Docker VM, so NodePort is not automatically reachable directly on localhost unless bridged or port-forwarded.
+  - Solution: Run `minikube service nginx-service --url` to obtain the correct accessible cluster IP:NodePort, or run `kubectl port-forward svc/nginx-service 6060:6060` to access via `http://localhost:6060`.
+Q4.3: One of the application Pods crashes during booking; how does Kubernetes ensure replicas:
+  - Explanation: The Kubernetes **Deployment Controller** and underlying **ReplicaSet** continuously maintain a reconciliation loop between the **Desired State** (replicas = 3) and the **Actual State**. When a pod crashes, the ReplicaSet detects the actual running count is 2 (less than 3) and automatically schedules and spins up a new replacement pod immediately.
+Q4.4: Commands to verify Nagios status and configuration:
+  - Check container: `docker ps -f name=nagios4`
+  - Check container logs: `docker logs nagios4`
+  - Verify inside container: `docker exec -it nagios4 /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg` (verifies configuration syntax without errors).
+================================================================================
+
+================================================================================
+                     SET-2 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+
+--------------------------------------------------------------------------------
+Q1. Docker Compose – Online Boutique Store [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Run MySQL backend (port 3306) and Tomcat web server (port 8080) in separate containers with persistent volume using Docker Compose.
+
+STEP 1: Create a dedicated directory
+Execute in terminal:
+  mkdir -p ~/set2_task1
+  cd ~/set2_task1
+
+STEP 2: Create the Docker Compose file (docker-compose.yml)
+Execute in terminal:
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  mysqldb:
+    image: mysql:8.0
+    container_name: boutique-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: boutiquestore
+      MYSQL_USER: boutique_user
+      MYSQL_PASSWORD: boutique_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - boutique_db_data:/var/lib/mysql
+    networks:
+      - boutique-network
+
+  tomcat:
+    image: tomcat:9.0-jdk11-openjdk-slim
+    container_name: boutique-tomcat
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=mysqldb
+      - DB_PORT=3306
+      - DB_NAME=boutiquestore
+    depends_on:
+      - mysqldb
+    networks:
+      - boutique-network
+
+volumes:
+  boutique_db_data:
+    driver: local
+
+networks:
+  boutique-network:
+    driver: bridge
+EOF
+
+STEP 3: Start the containers
+Execute in terminal:
+  docker compose up -d
+
+STEP 4: Verify running containers and volume
+Execute in terminal:
+  docker compose ps
+  docker volume ls | grep boutique_db_data
+  docker compose logs mysqldb
+  docker compose logs tomcat
+
+STEP 5: Test MySQL Connectivity and Persistent Data
+Execute in terminal:
+  docker exec -it boutique-mysql mysql -u root -prootpassword -e "USE boutiquestore; CREATE TABLE IF NOT EXISTS products (id INT PRIMARY KEY, name VARCHAR(50), price INT); INSERT INTO products VALUES (1, 'Silk Saree', 1500); SELECT * FROM products;"
+
+STEP 6: Access Tomcat through Web Browser
+  Open browser: http://localhost:8080/
+
+WHAT TO SHOW TO MAM:
+1. Terminal: Run `docker compose ps` showing `boutique-mysql` (port 3306) and `boutique-tomcat` (port 8080) both running with status "Up".
+2. Terminal: Show persistent volume `boutique_db_data` created using `docker volume inspect set2_task1_boutique_db_data`.
+3. Terminal: Show MySQL query output containing the products table and records.
+4. Browser: Open `http://localhost:8080/` showing the Apache Tomcat landing page.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q1.1: Configure port mappings and custom Docker network:
+  - In `docker-compose.yml`, define `ports: ["8080:8080"]` for tomcat and `ports: ["3306:3306"]` for mysql.
+  - Define custom bridge network `boutique-network` under `networks:`. Both containers share this network, allowing Tomcat to reach MySQL using the service name `mysqldb` via Docker's embedded DNS.
+Q1.2: Why customer registration/product data is lost when MySQL is recreated, and how volumes preserve it:
+  - Containers are ephemeral; by default, any data written inside container filesystem `/var/lib/mysql` is destroyed when the container is deleted.
+  - Solution: Configure a named volume (`boutique_db_data:/var/lib/mysql`) in `docker-compose.yml`. Even if container is stopped and removed (`docker compose down`), the volume persists on the host disk and mounts back on `docker compose up`.
+Q1.3: Connection Refused on http://localhost:8080 troubleshooting:
+  - Check if Tomcat container is running: `docker compose ps`
+  - Check container logs for boot crashes: `docker compose logs tomcat`
+  - Verify host port mapping: Ensure no other service occupies port 8080 on the host (`netstat -tulnp | grep 8080`).
+  - Safely stop and remove containers: `docker compose down` (or `docker compose down -v` if wiping volumes).
+
+--------------------------------------------------------------------------------
+Q2. Jenkins Pipeline for a Maven Web Project with Webhooks [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Build `https://github.com/haleema91/LAB-INTERNAL-II-OBS.git` using Jenkins Pipeline, deploy to Tomcat, and configure GitHub Webhook auto-trigger.
+
+STEP 1: Open Jenkins and Create New Pipeline Project
+1. Open `http://localhost:8080`.
+2. Click **New Item** -> Name: `OnlineBoutiqueStore` -> Select **Pipeline** -> Click **OK**.
+
+STEP 2: Configure Webhook Build Trigger
+1. In the project configuration, under **Build Triggers**:
+   - Check the box: **GitHub hook trigger for GITScm polling**.
+
+STEP 3: Configure GitHub Webhook (in GitHub Repo Settings)
+1. Go to your GitHub repository -> **Settings** -> **Webhooks** -> **Add webhook**.
+2. Payload URL: `http://<YOUR-JENKINS-IP>:8080/github-webhook/`
+3. Content type: `application/json`
+4. Which events would you like to trigger this webhook? Select: **Just the push event**.
+5. Click **Add webhook**.
+
+STEP 4: Pipeline Script
+In Jenkins Pipeline configuration, paste the following script:
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven'
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git branch: 'main', url: 'https://github.com/haleema91/LAB-INTERNAL-II-OBS.git'
+            }
+        }
+
+        stage('Maven Clean & Compile') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+
+        stage('Package WAR') {
+            steps {
+                sh 'mvn package'
+            }
+        }
+
+        stage('Deploy to Tomcat') {
+            steps {
+                echo 'Deploying WAR to Tomcat webapps...'
+                // Copies built war to Tomcat webapps directory:
+                sh 'cp target/*.war /var/lib/tomcat9/webapps/OnlineBoutiqueStore.war || true'
+            }
+        }
+    }
+    post {
+        always {
+            archiveArtifacts artifacts: 'target/*.war', allowEmptyArchive: true
+        }
+    }
+}
+
+STEP 5: Create Jenkins Pipeline View
+1. Click `+` tab on Jenkins main dashboard -> Select **Pipeline View**.
+2. Name it `Boutique-Pipeline-View` -> Select `OnlineBoutiqueStore` as initial job -> Click **OK**.
+
+WHAT TO SHOW TO MAM:
+1. GitHub Webhook settings page showing green checkmark for `http://<jenkins-url>:8080/github-webhook/`.
+2. Jenkins **Pipeline View / Stage View** showing all stages (Clone -> Clean & Compile -> Test -> Package -> Deploy) in green.
+3. Jenkins **Console Output** showing `[INFO] BUILD SUCCESS` and `Finished: SUCCESS`.
+4. Tomcat webapps showing deployed `OnlineBoutiqueStore.war`.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q2.1: Maven command to remove previously generated build files before building:
+  - Command: `mvn clean` (deletes the entire `target/` directory).
+Q2.2: Where to provide repository URL in Jenkins pipeline for a private repo:
+  - In the `git` or `checkout scm` step inside the `stage('Clone')`:
+    `git credentialsId: 'github-cred-id', url: 'https://github.com/username/repo.git'`
+    Credentials must be pre-configured in Jenkins -> Manage Jenkins -> Credentials.
+Q2.3: Application building successfully, but WAR file not generated:
+  - Command: Run `mvn package` (or `mvn clean package`). Ensure `<packaging>war</packaging>` is defined in `pom.xml`.
+
+--------------------------------------------------------------------------------
+Q3. Kubernetes – Container Deployment and Auto Scaling and Monitoring [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Nginx on Minikube with 2 replicas, expose NodePort on port 7070, scale to 5 replicas, verify resources, and configure Nagios Core Docker container.
+
+STEP 1: Start Minikube
+Execute in terminal:
+  minikube start --driver=docker
+
+STEP 2: Create Deployment with 2 replicas
+Execute in terminal:
+  kubectl create deployment boutique-nginx --image=nginx --replicas=2
+
+STEP 3: Expose Deployment via NodePort Service at port 7070
+Execute in terminal:
+  kubectl expose deployment boutique-nginx --type=NodePort --port=7070 --target-port=80 --name=boutique-service
+
+STEP 4: Scale Deployment from 2 to 5 Replicas
+Execute in terminal:
+  kubectl scale deployment boutique-nginx --replicas=5
+
+STEP 5: Verify Deployment, Pods, and Services
+Execute in terminal:
+  kubectl get deployments
+  kubectl get pods -o wide
+  kubectl get svc boutique-service
+  minikube service boutique-service --url
+
+STEP 6: Test Access in Browser
+  kubectl port-forward svc/boutique-service 7070:7070
+  # Browser: http://localhost:7070
+
+STEP 7: Install and Configure Nagios Core using Docker
+Execute in terminal:
+  docker run -d --name boutique-nagios -p 8085:80 jasonrivers/nagios:latest
+  docker ps | grep boutique-nagios
+
+STEP 8: Access Nagios Web Interface
+  Open browser: http://localhost:8085 (Username: `nagiosadmin`, Password: `nagios`)
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `kubectl get deployments` showing `boutique-nginx` with `READY 5/5`.
+2. Terminal: `kubectl get pods -o wide` showing 5 running pods.
+3. Terminal: `kubectl get svc boutique-service` showing NodePort service on port 7070.
+4. Browser: Open `http://localhost:7070` displaying the Nginx boutique landing page.
+5. Browser: Open Nagios dashboard (`http://localhost:8085`) showing hosts and services monitoring.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q3.1: Exposing application externally using NodePort Service and accessing through Minikube:
+  - Command: `kubectl expose deployment boutique-nginx --type=NodePort --port=7070 --target-port=80`.
+  - In Minikube, run `minikube service boutique-service --url` to get the accessible host-port URL, or run `kubectl port-forward svc/boutique-service 7070:7070` to map directly to localhost.
+Q3.2: Verify Nagios service status and configuration:
+  - Commands: `docker ps -f name=boutique-nagios`, `docker logs boutique-nagios`, and `docker exec -it boutique-nagios /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg`.
+Q3.3: Scaling to 5 replicas causes some Pods to remain in Pending state:
+  - Cause: Insufficient CPU or Memory on the single Minikube node.
+  - Troubleshooting: Run `kubectl describe pod <pending-pod>` to inspect the "Events" section.
+
+--------------------------------------------------------------------------------
+Q4. AWS EC2 Deployment – Online Boutique Store [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Launch Ubuntu EC2, connect via SSH, install Docker, deploy website's `index.html` using Nginx Docker container, and verify via EC2 Public IPv4.
+
+STEP 1: Launch Ubuntu EC2 Instance (AWS Console)
+1. AMI: Ubuntu 22.04 LTS (t2.micro).
+2. Key pair: Create or choose `boutique-key.pem`.
+3. Security Group Rules:
+   - SSH (Port 22, Source 0.0.0.0/0)
+   - HTTP (Port 80, Source 0.0.0.0/0)
+
+STEP 2: Connect to EC2 via SSH
+Execute on your local machine:
+  chmod 400 boutique-key.pem
+  ssh -i boutique-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Docker on EC2
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y docker.io
+  sudo systemctl start docker
+  sudo systemctl enable docker
+  sudo usermod -aG docker ubuntu
+  newgrp docker
+
+STEP 4: Create Website Directory and index.html
+Execute on EC2:
+  mkdir -p ~/boutique-web
+  cd ~/boutique-web
+
+  cat << 'EOF' > index.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Online Boutique Store</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #fdf2f8; text-align: center; padding: 50px; }
+        h1 { color: #db2777; }
+        .card { background: white; padding: 20px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Welcome to Online Boutique Store</h1>
+        <p>Premium Fashion, Ethnic Wear & Accessories</p>
+        <p>Deployed successfully on AWS EC2 using Docker & NGINX!</p>
+    </div>
+</body>
+</html>
+EOF
+
+STEP 5: Run Nginx Docker Container mounting index.html
+Execute on EC2:
+  docker run -d --name boutique-web-server -p 80:80 -v $(pwd)/index.html:/usr/share/nginx/html/index.html:ro nginx:alpine
+
+STEP 6: Verify Container Execution
+Execute on EC2:
+  docker ps
+  curl http://localhost
+
+STEP 7: Access in Browser
+  Open browser: http://<EC2-PUBLIC-IP>/
+
+WHAT TO SHOW TO MAM:
+1. AWS Console: Running Ubuntu EC2 instance with its Public IPv4 address.
+2. AWS Security Group: Inbound rule allowing HTTP Port 80 from 0.0.0.0/0.
+3. EC2 Terminal: Run `docker ps` showing `boutique-web-server` running on `0.0.0.0:80->80/tcp`.
+4. Web Browser: Open `http://<EC2-PUBLIC-IP>/` displaying the Online Boutique Store web page.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q4.1: Connect to EC2 using SSH and steps if SSH fails:
+  - Command: `ssh -i key.pem ubuntu@<EC2-Public-IP>`.
+  - If SSH fails:
+    1. Check permissions on key: `chmod 400 key.pem` (Windows: remove inherited permissions).
+    2. Check Security Group: Port 22 must be allowed from your IP or 0.0.0.0/0.
+    3. Verify correct username: `ubuntu` for Ubuntu OS (not `ec2-user` or `root`).
+    4. Verify EC2 public IP has not changed after instance stop/start.
+Q4.2: How to launch EC2, select instance type, key pair, and security group:
+  - In AWS Console -> EC2 -> Launch Instance -> Select Ubuntu Server 22.04 LTS AMI -> Select `t2.micro` (free tier) -> Select/create `.pem` key pair -> In Network Settings, check "Allow SSH traffic from Anywhere" and "Allow HTTP traffic from the internet".
+Q4.3: Container running on EC2, but customers unable to access website:
+  - Root cause: EC2 Security Group inbound rule for port 80 is missing or blocked by host firewall.
+  - Fix: AWS Console -> Security Groups -> Edit Inbound Rules -> Add Rule: Type `HTTP`, Port `80`, Source `0.0.0.0/0` -> Save Rules.
+  - Also verify Ubuntu firewall: `sudo ufw allow 80` or `sudo ufw disable`.
+================================================================================
+
+================================================================================
+                     SET-3 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+GitHub Repository: https://github.com/deepthisagar7/metro-reservation.git
+
+--------------------------------------------------------------------------------
+a) Docker – Multi-Container Application [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Run Metro Reservation application in Tomcat and MySQL database in separate containers, establishing communication and data persistence.
+
+STEP 1: Create a dedicated directory
+Execute in terminal:
+  mkdir -p ~/set3_docker
+  cd ~/set3_docker
+
+STEP 2: Clone repository & build WAR (or use Docker Compose)
+Execute in terminal:
+  git clone https://github.com/deepthisagar7/metro-reservation.git
+  cd metro-reservation
+  mvn clean package
+
+STEP 3: Create Docker Compose configuration (docker-compose.yml)
+Execute in terminal:
+  cd ~/set3_docker
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  mysqldb:
+    image: mysql:8.0
+    container_name: metro-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: metro_db
+      MYSQL_USER: metro_user
+      MYSQL_PASSWORD: metro_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - metro_db_data:/var/lib/mysql
+    networks:
+      - metro-net
+
+  metro-app:
+    image: tomcat:9.0-jdk11-openjdk-slim
+    container_name: metro-tomcat
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./metro-reservation/target/*.war:/usr/local/tomcat/webapps/metro-reservation.war
+    depends_on:
+      - mysqldb
+    networks:
+      - metro-net
+
+volumes:
+  metro_db_data:
+    driver: local
+
+networks:
+  metro-net:
+    driver: bridge
+EOF
+
+STEP 4: Run the multi-container application
+Execute in terminal:
+  docker compose up -d
+
+STEP 5: Verify containers, networks, and database
+Execute in terminal:
+  docker compose ps
+  docker network inspect set3_docker_metro-net
+  docker exec -it metro-mysql mysql -u root -proot -e "SHOW DATABASES; USE metro_db; CREATE TABLE IF NOT EXISTS tickets (id INT PRIMARY KEY, passenger VARCHAR(50), route VARCHAR(50)); INSERT INTO tickets VALUES (1, 'Ravi', 'Miyapur-LB Nagar'); SELECT * FROM tickets;"
+
+STEP 6: Access through browser
+  Open browser: http://localhost:8080/metro-reservation/
+
+WHAT TO SHOW TO MAM:
+1. Terminal: Run `docker compose ps` showing `metro-mysql` and `metro-tomcat` both "Up".
+2. Terminal: Run `docker exec -it metro-mysql mysql -u root -proot -e "SELECT * FROM metro_db.tickets;"` showing persistent records.
+3. Browser: Open `http://localhost:8080/metro-reservation/` showing the Metro Reservation system interface.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- What happens if MySQL container stops: The application will throw database connection exceptions (e.g. `CommunicationsException`), and passengers cannot book tickets or view bookings.
+- Preserve passenger data after deleting container: Configure Docker named volumes (e.g. `metro_db_data:/var/lib/mysql`). The volume stores files on the host storage independent of container lifecycle.
+- Why run in separate containers: Separation of Concerns, independent scaling (scale web tier without duplicating DB), security isolation, and easy upgrades without downtime.
+- Prevent unauthorized access: Use strong non-root passwords, bind MySQL to the internal Docker network rather than exposing 3306 to 0.0.0.0, and configure database access control grants.
+- Troubleshoot DB connection: Verify DB container is running (`docker ps`), ping `mysqldb` hostname from app container, verify credentials and port 3306 in app configuration.
+
+--------------------------------------------------------------------------------
+b) Jenkins – Freestyle Project [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Build the Metro Reservation Java web application using Maven in a Jenkins Freestyle Project and generate the WAR file.
+
+STEP 1: Open Jenkins and Create New Project
+1. Open `http://localhost:8080`.
+2. Click **New Item** -> Name: `MetroReservation-Freestyle` -> Select **Freestyle project** -> Click **OK**.
+
+STEP 2: Configure Source Code Management (SCM)
+1. Select **Git**.
+2. Repository URL: `https://github.com/deepthisagar7/metro-reservation.git`
+3. Branch Specifier: `*/main` (or `*/master`).
+
+STEP 3: Configure Build Triggers
+1. Check **Poll SCM** -> Schedule: `H/5 * * * *` (or `* * * * *`).
+
+STEP 4: Configure Build Step
+1. Click **Add build step** -> **Invoke top-level Maven targets**.
+   - Goals: `clean package`
+   (If Maven plugin not linked, choose "Execute shell" -> `mvn clean package`).
+
+STEP 5: Configure Post-build Actions
+1. Click **Add post-build action** -> **Archive the artifacts**.
+   - Files to archive: `target/*.war`
+2. Click **Save**.
+
+STEP 6: Run Build and Verify
+1. Click **Build Now**.
+2. Click build `#1` -> **Console Output** to verify `BUILD SUCCESS`.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins job status showing green/blue successful build indicator.
+2. **Console Output** showing Maven compiling source files and producing `[INFO] BUILD SUCCESS`.
+3. Post-build archived artifact: `metro-reservation.war` clickable link under build artifacts.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- If developer introduces compilation errors: Maven compiler plugin fails the build with `[ERROR] COMPILATION ERROR`, and Jenkins marks the build status as FAILED (red).
+- How Jenkins detects GitHub changes: Through SCM polling (`Poll SCM` cron) or instant trigger via GitHub Webhooks (`github-webhook/`).
+- Difference between generating WAR and deploying on Tomcat: Generating a WAR packages classes, JSPs, and libraries into an archive file in `target/`. Deploying on Tomcat copies that WAR into Tomcat's `webapps/` directory and extracts it for HTTP access.
+- Why Maven is useful: Automates dependency resolution from central repositories, manages build lifecycle (compile, test, package), and standardizes project structure.
+- Troubleshoot incorrect pom.xml: Check Jenkins console output for XML parsing errors, missing dependency coordinates, or plugin version conflicts.
+
+--------------------------------------------------------------------------------
+c) System Monitoring using Nagios [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Nagios Core via Docker, configure host and service monitoring (CPU, memory, disk, uptime, HTTP), and view alerts.
+
+STEP 1: Run Nagios Core in Docker
+Execute in terminal:
+  docker run -d --name metro-nagios -p 8085:80 jasonrivers/nagios:latest
+
+STEP 2: Verify Nagios Container
+Execute in terminal:
+  docker ps -f name=metro-nagios
+
+STEP 3: Access Nagios Web Interface
+1. Browser: `http://localhost:8085`
+2. Credentials: Username: `nagiosadmin` | Password: `nagios`
+
+STEP 4: View Monitoring Dashboard
+1. Under **Current Status** on left panel:
+   - Click **Hosts**: Shows `localhost` (UP).
+   - Click **Services**: Shows HTTP, PING, SSH, Root Partition, Current Load, Total Processes (all OK/Green).
+
+WHAT TO SHOW TO MAM:
+1. Nagios Dashboard at `http://localhost:8085`.
+2. Click **Hosts** -> show Host Status UP in green.
+3. Click **Services** -> show table of monitored services (HTTP, Load, Disk) with OK status in green.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- How Nagios identifies if server is running or down: Uses ICMP `check_ping` or host check command; if no response within timeout, marks host DOWN.
+- Difference between WARNING and CRITICAL: WARNING indicates a threshold breach requiring attention (e.g. 80% disk full), while CRITICAL means a service has failed or exceeded safe limits (e.g. service stopped or 95% disk full).
+- If CPU reaches 100%: Nagios `check_load` plugin triggers CRITICAL alert, notifying administrator to scale resources or restart stalled threads.
+- Detect app failure when server is running: Through active `check_http` service checks on port 8080. If Tomcat returns HTTP 500/502 or times out, Nagios flags service as CRITICAL even though OS host is UP.
+- Identify if problem is Tomcat, MySQL, or server: Check individual Nagios service status: if Host check is UP, MySQL port 3306 check is OK, but HTTP 8080 check is CRITICAL -> Tomcat has failed.
+
+--------------------------------------------------------------------------------
+d) Container Scaling using Kubernetes [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Metro Reservation on Minikube, scale replicas, verify status, and demonstrate automatic pod recreation.
+
+STEP 1: Start Minikube
+Execute in terminal:
+  minikube start --driver=docker
+
+STEP 2: Create Deployment with 2 Replicas
+Execute in terminal:
+  kubectl create deployment metro-app --image=nginx --replicas=2
+
+STEP 3: Expose Deployment via NodePort Service
+Execute in terminal:
+  kubectl expose deployment metro-app --type=NodePort --port=8080 --target-port=80 --name=metro-svc
+
+STEP 4: Scale Deployment to 5 Replicas
+Execute in terminal:
+  kubectl scale deployment metro-app --replicas=5
+
+STEP 5: Verify Deployment, Pods, and Services
+Execute in terminal:
+  kubectl get deployments
+  kubectl get pods -o wide
+  kubectl get svc metro-svc
+
+STEP 6: Demonstrate Automatic Pod Recreation (Self-Healing)
+Execute in terminal:
+  # Delete one running pod:
+  kubectl delete pod <pod-name-from-kubectl-get-pods>
+  # Immediately inspect pods:
+  kubectl get pods
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `kubectl get deployments` showing `metro-app` with `READY 5/5`.
+2. Terminal: `kubectl get pods -o wide` showing 5 running pods.
+3. Terminal: Demonstrate deleting a pod and show Kubernetes immediately spawning a replacement pod (status `ContainerCreating` -> `Running`).
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- What happens if one pod crashes during ticket booking: The Kubernetes ReplicaSet controller detects the failure and immediately schedules and boots a new pod to maintain the desired count of 5 replicas.
+- How Kubernetes maintains desired replicas: A continuous reconciliation control loop inside the ReplicaSet compares `Spec.Replicas` with actual running pods.
+- Difference between scaling up and scaling down: Scaling up increases replica count to distribute load during traffic spikes; scaling down reduces replicas during idle hours to conserve compute resources.
+- How Kubernetes distributes incoming requests: A Kubernetes Service acts as an internal Layer 4 load balancer using `kube-proxy` (iptables/IPVS) to distribute traffic round-robin across all healthy pod endpoints.
+
+--------------------------------------------------------------------------------
+e) AWS Deployment using EC2 [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Launch an Ubuntu EC2 instance on AWS, install Tomcat/Docker, deploy the Metro Reservation application, and access via EC2 Public IPv4.
+
+STEP 1: Launch EC2 Instance (AWS Console)
+1. AMI: Ubuntu 22.04 LTS (t2.micro).
+2. Key pair: `metro-key.pem`.
+3. Security Group Rules:
+   - SSH (Port 22, Source 0.0.0.0/0)
+   - Custom TCP (Port 8080, Source 0.0.0.0/0)
+   - HTTP (Port 80, Source 0.0.0.0/0)
+
+STEP 2: Connect to EC2
+  ssh -i metro-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Java, Maven, and Tomcat
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y openjdk-17-jdk maven tomcat9
+  sudo systemctl start tomcat9
+  sudo systemctl enable tomcat9
+
+STEP 4: Clone and Deploy Application
+Execute on EC2:
+  git clone https://github.com/deepthisagar7/metro-reservation.git
+  cd metro-reservation
+  mvn clean package
+  sudo cp target/*.war /var/lib/tomcat9/webapps/metro-reservation.war
+  sudo systemctl restart tomcat9
+
+STEP 5: Access Application
+  Open browser: http://<EC2-PUBLIC-IP>:8080/metro-reservation/
+
+WHAT TO SHOW TO MAM:
+1. AWS EC2 Console showing Running instance and Public IPv4 address.
+2. Security Groups showing inbound rule for Port 8080.
+3. EC2 terminal showing `mvn clean package` BUILD SUCCESS.
+4. Browser showing the Metro Reservation application running on `http://<EC2-PUBLIC-IP>:8080/metro-reservation/`.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- Reasons if passengers cannot access via Public IP: Security Group does not allow port 8080, Tomcat service is stopped (`systemctl status tomcat9`), or public IP changed after instance restart.
+- Why configure HTTP and Tomcat ports in Security Group: Security Groups act as a virtual firewall; by default, all inbound traffic except SSH is blocked. Port 8080 must be explicitly allowed.
+- What happens if Tomcat stops while EC2 runs: The EC2 instance remains reachable via SSH, but HTTP requests to the web application fail with "Connection Refused".
+- High availability if EC2 fails: Deploy an **Auto Scaling Group (ASG)** with an **Application Load Balancer (ALB)** spanning multiple Availability Zones.
+- Advantages of AWS over local server: Elastic scalability, pay-as-you-go pricing, 99.99% high availability SLA, automated backups, and global low-latency access.
+================================================================================
+
+================================================================================
+                     SET-4 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+GitHub Repository: https://github.com/haleema91/LAB-INTERNAL-II-OVR1.git
+
+--------------------------------------------------------------------------------
+Q1. AWS EC2 Deployment – Online Vehicle Rental Maven Java Application [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Maven Java standalone application on AWS Ubuntu EC2 inside a Docker container, verifying output via container logs.
+
+STEP 1: Launch Ubuntu EC2 Instance (AWS Console)
+1. AMI: Ubuntu Server 22.04 LTS (t2.micro).
+2. Key pair: `ovr-key.pem`.
+3. Security Group Inbound Rules:
+   - SSH (Port 22, Source 0.0.0.0/0)
+
+STEP 2: Connect to EC2
+  ssh -i ovr-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Git, Maven, and Docker
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y git maven docker.io
+  sudo systemctl start docker
+  sudo systemctl enable docker
+  sudo usermod -aG docker ubuntu
+  newgrp docker
+
+STEP 4: Clone Repository and Build Standalone JAR
+Execute on EC2:
+  git clone https://github.com/haleema91/LAB-INTERNAL-II-OVR1.git
+  cd LAB-INTERNAL-II-OVR1
+  mvn clean package
+
+STEP 5: Create Dockerfile for Standalone Java Application
+Execute on EC2 inside the project directory:
+  cat << 'EOF' > Dockerfile
+FROM openjdk:17-slim
+WORKDIR /app
+COPY target/*.jar app.jar
+ENTRYPOINT ["java", "-jar", "app.jar"]
+EOF
+
+STEP 6: Build Docker Image and Run Container
+Execute on EC2:
+  docker build -t vehicle-rental-app:v1 .
+  docker run -d --name vehicle-rental-container vehicle-rental-app:v1
+
+STEP 7: Verify Execution through Container Logs
+Execute on EC2:
+  docker ps -a
+  docker logs vehicle-rental-container
+
+WHAT TO SHOW TO MAM:
+1. AWS Console: Running Ubuntu EC2 instance and its Public IPv4 address.
+2. Terminal on EC2: Successful `mvn clean package` output generating executable JAR.
+3. Terminal on EC2: `docker build` completed and `docker logs vehicle-rental-container` showing application execution output.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q1.1: Connect via SSH and steps if SSH fails:
+  - Command: `ssh -i ovr-key.pem ubuntu@<EC2-IP>`.
+  - Troubleshooting: Verify key file permissions (`chmod 400 ovr-key.pem`), verify Security Group allows port 22 inbound, check instance public IP.
+Q1.2: Maven commands to clean, compile, test, and package:
+  - Commands: `mvn clean`, `mvn compile`, `mvn test`, `mvn package`. Or all in one: `mvn clean package`.
+Q1.3: Docker commands to run, check status, inspect logs, and stop:
+  - Run: `docker run -d --name vehicle-rental-container vehicle-rental-app:v1`
+  - Status: `docker ps -a`
+  - Logs: `docker logs vehicle-rental-container`
+  - Stop: `docker stop vehicle-rental-container`
+
+--------------------------------------------------------------------------------
+Q2. Kubernetes – Container Deployment, Auto Scaling and Monitoring [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy on Minikube with 3 replicas, expose NodePort on port 6060, scale to 5 replicas, and monitor using Nagios Docker container.
+
+STEP 1: Start Minikube
+Execute in terminal:
+  minikube start --driver=docker
+
+STEP 2: Create Deployment with 3 Replicas
+Execute in terminal:
+  kubectl create deployment ovr-nginx --image=nginx --replicas=3
+
+STEP 3: Expose Deployment using NodePort on Port 6060
+Execute in terminal:
+  kubectl expose deployment ovr-nginx --type=NodePort --port=6060 --target-port=80 --name=ovr-service
+
+STEP 4: Scale Deployment to 5 Replicas
+Execute in terminal:
+  kubectl scale deployment ovr-nginx --replicas=5
+
+STEP 5: Verify Deployments, Pods, and Services
+Execute in terminal:
+  kubectl get deployments
+  kubectl get pods -o wide
+  kubectl get svc ovr-service
+
+STEP 6: Access Service in Browser
+Execute in terminal:
+  kubectl port-forward svc/ovr-service 6060:6060
+  # Browser: http://localhost:6060
+
+STEP 7: Install and Configure Nagios Core using Docker
+Execute in terminal:
+  docker run -d --name ovr-nagios -p 8085:80 jasonrivers/nagios:latest
+  docker ps | grep ovr-nagios
+
+STEP 8: Access Nagios Web Interface
+  Open browser: http://localhost:8085 (Username: `nagiosadmin`, Password: `nagios`)
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `kubectl get deployments` showing `ovr-nginx` with `READY 5/5`.
+2. Terminal: `kubectl get pods -o wide` showing 5 active pods running.
+3. Terminal: `kubectl get svc ovr-service` showing NodePort service on port 6060.
+4. Browser: `http://localhost:6060` loading the Nginx welcome page.
+5. Browser: `http://localhost:8085` Nagios dashboard showing hosts and services up.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q2.1: Exposing application externally via NodePort and Minikube URL:
+  - Command: `kubectl expose deployment ovr-nginx --type=NodePort --port=6060 --target-port=80`.
+  - In Minikube, execute `minikube service ovr-service --url` to get the host access URL, or run `kubectl port-forward svc/ovr-service 6060:6060`.
+Q2.2: Scaling to replicas causes Pods to remain in Pending state:
+  - Cause: Insufficient CPU/Memory resources on the Minikube cluster node.
+  - Troubleshooting: Run `kubectl describe pod <pod-name>` and look at "Events" for `FailedScheduling: 0/1 nodes are available: insufficient memory/cpu`.
+Q2.3: Install Nagios Core via Docker and verify status:
+  - Command: `docker run -d --name ovr-nagios -p 8085:80 jasonrivers/nagios:latest`.
+  - Status commands: `docker ps`, `docker logs ovr-nagios`, and verify web UI on port 8085.
+
+--------------------------------------------------------------------------------
+Q3. Jenkins Freestyle Project – Online Vehicle Rental Maven Java Application [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Automate the build of `https://github.com/haleema91/LAB-INTERNAL-II-OVR1.git` using Jenkins Freestyle project named `Vehicle-Rental`, execute clean, install, test, and archive the JAR.
+
+STEP 1: Create Freestyle Project
+1. Open Jenkins: `http://localhost:8080`.
+2. Click **New Item** -> Name: `Vehicle-Rental` -> Select **Freestyle project** -> Click **OK**.
+
+STEP 2: Configure SCM (Git)
+1. Select **Git**.
+2. Repository URL: `https://github.com/haleema91/LAB-INTERNAL-II-OVR1.git`
+3. Branch Specifier: `*/main` (or `*/master`).
+
+STEP 3: Configure Build Triggers
+1. Check **GitHub hook trigger for GITScm polling** (or **Poll SCM** with `* * * * *`).
+
+STEP 4: Configure Build Steps
+1. Click **Add build step** -> **Invoke top-level Maven targets**.
+   - Goals: `clean install test`
+   (If Maven plugin not linked: choose "Execute shell" -> `mvn clean install test`).
+
+STEP 5: Configure Post-Build Action (Archive JAR)
+1. Click **Add post-build action** -> **Archive the artifacts**.
+   - Files to archive: `target/*.jar`
+2. Click **Save**.
+
+STEP 6: Execute Build and Verify
+1. Click **Build Now**.
+2. Check **Console Output** for `BUILD SUCCESS`.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins project dashboard showing green/blue build indicator for `Vehicle-Rental`.
+2. **Console Output** showing `mvn clean install test` ending with `[INFO] BUILD SUCCESS` and `Finished: SUCCESS`.
+3. Build page showing archived `.jar` file under "Last Successful Artifacts".
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q3.1: Configure Post-Build Action to archive generated JAR file:
+  - In project settings, scroll to "Post-build Actions", click "Add post-build action", select "Archive the artifacts", and specify file pattern: `target/*.jar` (or `**/*.jar`).
+Q3.2: Configure GitHub Webhook and Jenkins trigger:
+  - In Jenkins project, check "GitHub hook trigger for GITScm polling". In GitHub repository -> Settings -> Webhooks -> Add webhook -> Payload URL: `http://<jenkins-ip>:8080/github-webhook/`, Content-type: `application/json`.
+Q3.3: Jenkins fails during Maven execution with Java/Maven errors:
+  - Open Console Output to identify error details. Go to Jenkins -> Manage Jenkins -> Tools -> Verify configured JDK and Maven home paths. Ensure project Java version matches Jenkins JDK.
+
+--------------------------------------------------------------------------------
+Q4. Docker Compose – Online Vehicle Rental Website Using WordPress and MySQL [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Run WordPress and MySQL containers with persistent volumes, environment variables, and verify web access.
+
+STEP 1: Create a dedicated directory
+Execute in terminal:
+  mkdir -p ~/set4_task4
+  cd ~/set4_task4
+
+STEP 2: Create Docker Compose configuration (docker-compose.yml)
+Execute in terminal:
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: ovr-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: wppassword
+    volumes:
+      - ovr_db_data:/var/lib/mysql
+    networks:
+      - ovr-net
+
+  wordpress:
+    image: wordpress:latest
+    container_name: ovr-wordpress
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: wppassword
+    volumes:
+      - ovr_wp_data:/var/www/html
+    depends_on:
+      - db
+    networks:
+      - ovr-net
+
+volumes:
+  ovr_db_data:
+    driver: local
+  ovr_wp_data:
+    driver: local
+
+networks:
+  ovr-net:
+    driver: bridge
+EOF
+
+STEP 3: Start containers
+Execute in terminal:
+  docker compose up -d
+
+STEP 4: Verify containers and volumes
+Execute in terminal:
+  docker compose ps
+  docker volume ls | grep ovr
+
+STEP 5: Access in browser
+  Open browser: http://localhost:8080/
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `docker compose ps` showing `ovr-mysql` and `ovr-wordpress` running in "Up" status.
+2. Terminal: `docker volume ls` showing `ovr_db_data` and `ovr_wp_data` created.
+3. Browser: Open `http://localhost:8080/` showing the WordPress installation/welcome setup screen.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q4.1: Why data is lost when MySQL is recreated, and how volumes preserve it:
+  - Containers are ephemeral; data inside container directories is lost when removed. Configuring named volume `ovr_db_data:/var/lib/mysql` persists data on the host disk even when the container is deleted.
+Q4.2: Application fails to connect to MySQL database troubleshooting:
+  - Check container status: `docker compose ps` to ensure DB is running.
+  - Check logs: `docker compose logs db` to ensure MySQL initialized.
+  - Check DB hostname in WordPress: Must use service name `db`, not `localhost`.
+Q4.3: Standalone JAR Docker container exits immediately after execution:
+  - Standalone console apps terminate once the `main()` method completes unless kept alive.
+  - Check exit reason: `docker ps -a` (shows Exit code). Inspect logs: `docker logs <container-id>` to check for exceptions. If background execution is needed, run with `tail -f /dev/null` or interactive `-it`.
+================================================================================
+
+================================================================================
+                     SET-5 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+GitHub Repository: https://github.com/savram674/BookBank.git
+
+--------------------------------------------------------------------------------
+Q1. Jenkins – Pipeline Script [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Create a Declarative Pipeline for Maven Web Project (BookBank) with Checkout, Build, Test, and Docker stages.
+
+STEP 1: Create a New Pipeline Project in Jenkins
+1. Open Jenkins: `http://localhost:8080`.
+2. Click **New Item** -> Name: `BookBank-Pipeline` -> Select **Pipeline** -> Click **OK**.
+
+STEP 2: Enter Pipeline Script
+In the **Pipeline** configuration section, paste:
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source code from GitHub...'
+                git branch: 'master', url: 'https://github.com/savram674/BookBank.git'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo 'Compiling and packaging WAR file...'
+                sh 'mvn clean package -DskipTests'  // Use 'bat' if Jenkins is on Windows
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo 'Running unit test cases...'
+                sh 'mvn test'  // Use 'bat' if Jenkins is on Windows
+            }
+        }
+
+        stage('Docker Build & Run') {
+            steps {
+                echo 'Building Docker container...'
+                sh '''
+                cat << 'EOF' > Dockerfile
+FROM tomcat:9.0-jdk17-slim
+RUN rm -rf /usr/local/tomcat/webapps/ROOT
+COPY target/*.war /usr/local/tomcat/webapps/ROOT.war
+EXPOSE 8080
+CMD ["catalina.sh", "run"]
+EOF
+                docker build -t bookbank-pipeline-app . || true
+                docker stop bookbank-live || true
+                docker rm bookbank-live || true
+                docker run -d --name bookbank-live -p 8082:8080 bookbank-pipeline-app || true
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'target/*.war', allowEmptyArchive: true
+        }
+    }
+}
+
+STEP 3: Run Build and Verify
+1. Click **Build Now**.
+2. Check the **Stage View** on project dashboard showing green boxes across all stages.
+3. Check **Console Output** for `BUILD SUCCESS`.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins **Stage View** showing Checkout, Build, Test, and Docker Build & Run all green.
+2. **Console Output** showing `BUILD SUCCESS` and generated WAR.
+3. Show archived artifact `target/BookBank.war`.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- Pipeline not creating .war files — which stage is responsible?
+  Answer: The **Build / Package stage** (`stage('Build')`). The command must include `mvn package` (or `mvn clean package`). If only `mvn compile` is run, no `.war` is generated.
+- GitHub repository link is missing in script — where exactly do you provide it?
+  Answer: Inside the **Checkout stage** within the `git` step:
+  `git branch: 'master', url: 'https://github.com/savram674/BookBank.git'`
+
+--------------------------------------------------------------------------------
+Q2. Docker Compose for a Multi-Container Docker Image [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Create a Docker Compose configuration for Redis, Nginx, and PostgreSQL services, with appropriate ports, persistent volumes, and environment details.
+
+STEP 1: Create a dedicated directory
+Execute in terminal:
+  mkdir -p ~/set5_task2
+  cd ~/set5_task2
+
+STEP 2: Create the Docker Compose configuration (docker-compose.yml)
+Execute in terminal:
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: web-nginx
+    restart: always
+    ports:
+      - "80:80"
+    networks:
+      - app-net
+
+  redis:
+    image: redis:alpine
+    container_name: cache-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - app-net
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: db-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpassword
+      POSTGRES_DB: mydatabase
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  app-net:
+    driver: bridge
+EOF
+
+STEP 3: Run containers
+Execute in terminal:
+  docker compose up -d
+
+STEP 4: Verify containers and test PostgreSQL login
+Execute in terminal:
+  docker compose ps
+  # Login to PostgreSQL database container:
+  docker exec -it db-postgres psql -U dbuser -d mydatabase -c "CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(50)); INSERT INTO users (name) VALUES ('Antigravity Student'); SELECT * FROM users;"
+
+STEP 5: Access Nginx in browser
+  Open browser: http://localhost:80/
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `docker compose ps` showing `web-nginx` (80), `cache-redis` (6379), and `db-postgres` (5432) all running in "Up" status.
+2. Terminal: Successful SQL execution inside PostgreSQL container displaying table and records.
+3. Browser: Open `http://localhost:80/` showing Nginx welcome screen.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- Flask API and Nginx server on same host exposing 5000 and 80:
+  Answer: In `docker-compose.yml`, define the Flask service with `ports: ["5000:5000"]` and the Nginx service with `ports: ["80:80"]`. Place both services on the same custom bridge network. In `nginx.conf`, set `proxy_pass http://flask-service:5000;` so Nginx reverse-proxies to Flask while both expose their respective external host ports.
+
+--------------------------------------------------------------------------------
+Q3. Kubernetes using Minikube – Application Deployment and Service Exposure [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Start Minikube, create deployment using `savram674/eduassesspro` with 2 replicas, expose NodePort service, test deletion, and troubleshoot pending pods.
+
+STEP 1: Start Minikube & Verify Cluster Readiness
+Execute in terminal:
+  minikube start --driver=docker
+  minikube status
+  kubectl get nodes
+
+STEP 2: Create Deployment with 2 Replicas
+Execute in terminal:
+  kubectl create deployment eduassess-deploy --image=savram674/eduassesspro --replicas=2
+
+STEP 3: Expose Deployment using NodePort Service
+Execute in terminal:
+  kubectl expose deployment eduassess-deploy --type=NodePort --port=8080 --target-port=8080 --name=eduassess-svc
+
+STEP 4: Verify Deployment, Pods, and Services
+Execute in terminal:
+  kubectl get deployments
+  kubectl get pods -o wide
+  kubectl get svc eduassess-svc
+  minikube service eduassess-svc --url
+
+STEP 5: Demonstrate Deletion of a Pod (Self-Healing)
+Execute in terminal:
+  kubectl delete pod <pod-name-from-kubectl-get-pods>
+  kubectl get pods
+
+STEP 6: Demonstrate Deletion of Deployment
+Execute in terminal:
+  kubectl delete deployment eduassess-deploy
+  kubectl delete svc eduassess-svc
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `minikube status` showing Host, kubelet, and apiserver all Running.
+2. Terminal: `kubectl get deployments` showing `eduassess-deploy` with `READY 2/2`.
+3. Terminal: `kubectl get pods` showing 2 pods running.
+4. Terminal: Show pod deletion where a replacement pod is instantly created by ReplicaSet.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q3.5: Pod stuck in "Pending" state — possible reasons & troubleshooting:
+  - Reasons: Insufficient CPU/Memory on cluster node, no matching node selector/taints, or persistent volume claim not bound.
+  - Troubleshooting: Run `kubectl describe pod <pod-name>`. Read the "Events:" block at the bottom to find the scheduler's rejection message.
+Q3.6: How to debug a failed deployment in Kubernetes:
+  1. `kubectl rollout status deployment/<name>`: Check deployment progression.
+  2. `kubectl describe deployment <name>`: View replica sets and deployment events.
+  3. `kubectl get pods`: Identify crashing pods (e.g. `CrashLoopBackOff`, `ImagePullBackOff`).
+  4. `kubectl logs <pod-name>`: Check container stderr/stdout logs.
+  5. `kubectl rollout undo deployment/<name>`: Roll back to previous stable release if needed.
+
+--------------------------------------------------------------------------------
+Q4. Create an EC2 Instance with Ubuntu and Deploy an Application [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy `https://github.com/savram674/BookBank.git` on an AWS EC2 Ubuntu instance using Docker and verify using the EC2 Public IPv4.
+
+STEP 1: Launch EC2 Instance (AWS Console)
+1. AMI: Ubuntu 22.04 LTS (t2.micro).
+2. Key pair: `bookbank-key.pem`.
+3. Security Group Rules:
+   - SSH (Port 22, Source 0.0.0.0/0)
+   - Custom TCP (Port 8080, Source 0.0.0.0/0)
+
+STEP 2: Connect to EC2
+  ssh -i bookbank-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Docker and Git
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y docker.io git
+  sudo systemctl start docker
+  sudo systemctl enable docker
+  sudo usermod -aG docker ubuntu
+  newgrp docker
+
+STEP 4: Clone Repository and Create Dockerfile
+Execute on EC2:
+  git clone https://github.com/savram674/BookBank.git
+  cd BookBank
+
+  cat << 'EOF' > Dockerfile
+FROM maven:3.8.4-openjdk-17-slim AS build
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+FROM tomcat:9.0-jdk17-slim
+RUN rm -rf /usr/local/tomcat/webapps/ROOT
+COPY --from=build /app/target/BookBank.war /usr/local/tomcat/webapps/ROOT.war
+EXPOSE 8080
+CMD ["catalina.sh", "run"]
+EOF
+
+STEP 5: Build Image and Run Container
+Execute on EC2:
+  docker build -t bookbank-web:v1 .
+  docker run -d --name bookbank-app -p 8080:8080 --restart=always bookbank-web:v1
+
+STEP 6: Verify and Access
+Execute on EC2:
+  docker ps
+  curl http://localhost:8080
+
+STEP 7: Access in Browser
+  Open browser: http://<EC2-PUBLIC-IP>:8080/
+
+WHAT TO SHOW TO MAM:
+1. AWS EC2 Console showing Running Ubuntu instance with its Public IPv4.
+2. Security Groups showing inbound rule for Port 8080.
+3. EC2 terminal showing `docker ps` with `bookbank-app` running.
+4. Browser showing BookBank web application on `http://<EC2-PUBLIC-IP>:8080/`.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q4.7: Host simple index.html on Amazon Linux 2 EC2:
+  1. Connect to EC2 via SSH: `ssh -i key.pem ec2-user@<IP>`.
+  2. Install web server: `sudo yum update -y && sudo yum install -y httpd`.
+  3. Start and enable Apache: `sudo systemctl start httpd && sudo systemctl enable httpd`.
+  4. Copy `index.html` to document root: `sudo cp index.html /var/www/html/index.html`.
+  5. Security Group: Ensure Inbound rule allows HTTP Port 80 from 0.0.0.0/0.
+Q4.8: index.html in /var/www/html/ but web page still not loading — 2 possible issues:
+  1. **Security Group Port 80 blocked**: The EC2 Security Group lacks an inbound rule allowing HTTP traffic on port 80 from 0.0.0.0/0.
+  2. **Web server service not running**: The web server daemon (Apache `httpd` or `nginx`) is stopped or inactive (`sudo systemctl status httpd`).
+================================================================================
+
+================================================================================
+                     SET-6 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+GitHub Repository: https://github.com/deepthisagar7/library-management.git
+
+--------------------------------------------------------------------------------
+1. Docker – Multi-Container Application [20 MARKS]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy WordPress frontend and MySQL backend for a Centralized Digital Library System using custom Docker network and persistent volumes.
+
+STEP 1: Create a dedicated directory
+Execute in terminal:
+  mkdir -p ~/set6_task1
+  cd ~/set6_task1
+
+STEP 2: Create Docker Compose file (docker-compose.yml)
+Execute in terminal:
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  library-db:
+    image: mysql:8.0
+    container_name: digital-library-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: libraryrootpassword
+      MYSQL_DATABASE: librarydb
+      MYSQL_USER: libraryuser
+      MYSQL_PASSWORD: librarypassword
+    volumes:
+      - library_db_data:/var/lib/mysql
+    networks:
+      - library-net
+
+  library-web:
+    image: wordpress:latest
+    container_name: digital-library-web
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: library-db:3306
+      WORDPRESS_DB_NAME: librarydb
+      WORDPRESS_DB_USER: libraryuser
+      WORDPRESS_DB_PASSWORD: librarypassword
+    volumes:
+      - library_wp_data:/var/www/html
+    depends_on:
+      - library-db
+    networks:
+      - library-net
+
+volumes:
+  library_db_data:
+    driver: local
+  library_wp_data:
+    driver: local
+
+networks:
+  library-net:
+    driver: bridge
+EOF
+
+STEP 3: Start containers
+Execute in terminal:
+  docker compose up -d
+
+STEP 4: Verify containers and test data persistence
+Execute in terminal:
+  docker compose ps
+  docker network inspect set6_task1_library-net
+  docker volume ls | grep library
+
+STEP 5: Access in browser
+  Open browser: http://localhost:8080/
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `docker compose ps` showing `digital-library-db` and `digital-library-web` in "Up" status.
+2. Terminal: Show persistent volume and custom bridge network `library-net`.
+3. Browser: Open `http://localhost:8080/` showing the Digital Library WordPress setup.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- If MySQL container crashes while WordPress is running: WordPress displays "Error establishing a database connection". Once MySQL restarts, WordPress reconnects automatically.
+- How database info is recovered after container deletion: Persistent named volume `library_db_data` keeps data on host disk independent of the container lifecycle.
+- Why custom Docker network is required: Provides automatic DNS resolution (allowing `library-web` to reach `library-db` by service name) and network isolation from other containers.
+- Prevent unauthorized access to MySQL: Do not expose port 3306 to the host or internet (`ports:` is omitted for mysql), use strong passwords, and restrict DB user privileges.
+- Deploy 5 department websites: Use Docker Compose to spin up 5 WordPress containers on different ports (e.g. 8081-8085) or use an Nginx reverse proxy routing `/dept1`, `/dept2` to separate containers.
+
+--------------------------------------------------------------------------------
+2. Jenkins – Java Application Build and Continuous Integration [20 MARKS]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Configure Jenkins Freestyle Project for `https://github.com/deepthisagar7/library-management.git`, execute Maven compile and test, and archive the WAR/JAR.
+
+STEP 1: Create Freestyle Project
+1. Open Jenkins: `http://localhost:8080`.
+2. Click **New Item** -> Name: `LibraryManagement-CI` -> Select **Freestyle project** -> Click **OK**.
+
+STEP 2: Configure Git Repository
+1. Source Code Management: Select **Git**.
+2. Repository URL: `https://github.com/deepthisagar7/library-management.git`
+3. Branch Specifier: `*/main` (or `*/master`).
+
+STEP 3: Configure Build Triggers
+1. Check **Poll SCM** -> Schedule: `H/5 * * * *` (or `* * * * *`).
+
+STEP 4: Configure Build Steps
+1. Add build step -> **Invoke top-level Maven targets**.
+   - Goals: `clean compile test package`
+   (Or Execute shell: `mvn clean compile test package`).
+
+STEP 5: Configure Post-Build Action
+1. Add post-build action -> **Archive the artifacts**.
+   - Files to archive: `target/*.war, target/*.jar`
+2. Click **Save**.
+
+STEP 6: Build Now & Verify
+1. Click **Build Now**.
+2. Check **Console Output** for `BUILD SUCCESS`.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins job status showing green/blue successful build.
+2. **Console Output** showing Maven compilation and test execution.
+3. Click on the archived artifact link under the build.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- How Jenkins identifies compilation errors: Maven exits with a non-zero exit code (`BUILD FAILURE`), which Jenkins detects and marks the build as FAILED (red).
+- If compilation succeeds but test cases fail: Surefire plugin reports test failures, Maven halts the build before the package phase, and Jenkins marks the build as UNSTABLE or FAILED.
+- Why Maven is used instead of manual JARs: Dependency management, automated transitive dependency resolution, and repeatable standardized builds.
+- How Jenkins builds only a specific GitHub branch: In "Branch Specifier", enter the exact branch name (e.g. `*/feature-branch` or `refs/heads/main`).
+- Difference between CI and CD: Continuous Integration (CI) automatically builds and tests code on every commit. Continuous Deployment (CD) automatically releases validated builds directly to production environments.
+
+--------------------------------------------------------------------------------
+3. Kubernetes – Container Deployment and Auto Scaling [20 MARKS]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy on Minikube with 2 replicas, expose via Service, scale to 5 replicas, demonstrate self-healing, rolling update, and rollback.
+
+STEP 1: Start Minikube
+Execute in terminal:
+  minikube start --driver=docker
+
+STEP 2: Create Deployment with 2 Replicas
+Execute in terminal:
+  kubectl create deployment library-deploy --image=nginx:1.20 --replicas=2
+
+STEP 3: Expose Deployment using NodePort Service
+Execute in terminal:
+  kubectl expose deployment library-deploy --type=NodePort --port=8080 --target-port=80 --name=library-svc
+
+STEP 4: Scale Deployment from 2 to 5 Replicas
+Execute in terminal:
+  kubectl scale deployment library-deploy --replicas=5
+  kubectl get deployments
+  kubectl get pods -o wide
+
+STEP 5: Demonstrate Automatic Pod Recreation (Self-Healing)
+Execute in terminal:
+  kubectl delete pod <pod-name-from-kubectl-get-pods>
+  kubectl get pods
+
+STEP 6: Demonstrate Rolling Update and Rollback
+Execute in terminal:
+  # Update image to nginx:1.21:
+  kubectl set image deployment/library-deploy nginx=nginx:1.21 --record
+  kubectl rollout status deployment/library-deploy
+
+  # Rollback to previous version:
+  kubectl rollout undo deployment/library-deploy
+  kubectl rollout status deployment/library-deploy
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `kubectl get deployments` showing `library-deploy` with `READY 5/5`.
+2. Terminal: `kubectl get pods -o wide` showing 5 running pods.
+3. Terminal: Show rolling update and successful `kubectl rollout undo` rollback message.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- What happens when one pod crashes: The ReplicaSet controller detects the deficit in running pods and immediately creates a replacement pod to maintain desired count.
+- How Kubernetes maintains desired replicas: Continuous reconciliation loop inside the ReplicaSet controller.
+- Manual scaling vs Auto scaling: Manual scaling requires an administrator command (`kubectl scale`), while Auto scaling (HPA - Horizontal Pod Autoscaler) dynamically scales pods based on CPU/memory metrics.
+- Why a Kubernetes Service is required: Pod IPs are dynamic and ephemeral. A Service provides a stable IP and DNS name and performs load balancing across pods.
+- Recover from failed application update: Run `kubectl rollout undo deployment/<deployment-name>` to revert to the previous revision.
+
+--------------------------------------------------------------------------------
+4. Nagios – Infrastructure and Application Monitoring [20 MARKS]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Run Nagios Docker container, configure host and service monitoring (CPU, RAM, disk, HTTP, DB), and define WARNING/CRITICAL thresholds.
+
+STEP 1: Run Nagios Core in Docker
+Execute in terminal:
+  docker run -d --name library-nagios -p 8085:80 jasonrivers/nagios:latest
+
+STEP 2: Access Nagios Web Interface
+1. Browser: `http://localhost:8085`
+2. Credentials: Username: `nagiosadmin` | Password: `nagios`
+
+STEP 3: View Monitoring Dashboard
+1. Click **Hosts** on left panel (show `localhost` UP).
+2. Click **Services** (show HTTP, PING, SSH, Current Load, Root Partition OK).
+
+WHAT TO SHOW TO MAM:
+1. Nagios Dashboard at `http://localhost:8085`.
+2. Hosts and Services tables showing green **UP** and **OK** statuses.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- How Nagios identifies high CPU: Uses the `check_load` plugin with WARNING and CRITICAL load average thresholds.
+- Difference between WARNING and CRITICAL: WARNING is an early indicator that a metric is elevated but still functional; CRITICAL signifies an outage or dangerous limit.
+- Detect application failure when server is running: `check_http` validates HTTP response codes and response content. If Tomcat crashes or returns 500/502, check fails even if server OS is running.
+- If Nagios monitoring server fails: Secondary redundant Nagios servers or external heartbeat checks alert administrators.
+- Identify if downtime is Tomcat, MySQL, or networking: If Host PING check passes (network OK) and port 3306 check passes (MySQL OK), but port 8080 check fails, the issue is isolated to Tomcat.
+
+--------------------------------------------------------------------------------
+5. AWS – Cloud Deployment using EC2 [20 MARKS]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Library Management application on an AWS Ubuntu EC2 instance, configure Security Groups, and access via Public IPv4.
+
+STEP 1: Launch EC2 Instance (AWS Console)
+1. AMI: Ubuntu 22.04 LTS (t2.micro).
+2. Key pair: `library-key.pem`.
+3. Security Group Rules:
+   - SSH (Port 22, Source: My IP or 0.0.0.0/0)
+   - Custom TCP (Port 8080, Source: 0.0.0.0/0)
+
+STEP 2: Connect to EC2
+  ssh -i library-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Java, Maven, Tomcat
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y openjdk-17-jdk maven tomcat9
+  sudo systemctl start tomcat9
+
+STEP 4: Clone Repository and Deploy WAR
+Execute on EC2:
+  git clone https://github.com/deepthisagar7/library-management.git
+  cd library-management
+  mvn clean package
+  sudo cp target/*.war /var/lib/tomcat9/webapps/library-management.war
+  sudo systemctl restart tomcat9
+
+STEP 5: Access Application
+  Open browser: http://<EC2-PUBLIC-IP>:8080/library-management/
+
+WHAT TO SHOW TO MAM:
+1. AWS EC2 Console showing Running instance and Public IPv4.
+2. Security Groups showing Port 8080 inbound rule.
+3. Browser showing Library Management application running on `http://<EC2-PUBLIC-IP>:8080/library-management/`.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- What causes EC2 application to be inaccessible via browser: Port 8080 not permitted in Security Group, Tomcat service stopped, or public IP changed.
+- Why SSH access should be restricted: Port 22 exposed to 0.0.0.0/0 invites brute-force SSH attacks; restricting to "My IP" enforces least-privilege security.
+- What happens if Tomcat stops while EC2 runs: The EC2 instance stays up, but web requests return "Connection Refused".
+- Improving application availability: Deploy across multiple Availability Zones using an **Application Load Balancer (ALB)** and **Auto Scaling Group (ASG)**.
+- Why ALB + multiple EC2 is better than single EC2: Eliminates single point of failure (SPOF), provides zero-downtime rolling deployments, and balances high traffic loads.
+================================================================================
+
+================================================================================
+                     SET-7 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+GitHub Repositories:
+- BookBank: https://github.com/savram674/BookBank.git
+- EduAssessPro: https://github.com/savram674/EduAssessPro.git
+
+--------------------------------------------------------------------------------
+Q1. Jenkins Pipeline View for a Web Project [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Automate the build and deployment of `https://github.com/savram674/BookBank.git` using Jenkins, deploy to Tomcat, and create a Pipeline View.
+
+STEP 1: Create a New Pipeline Project
+1. Open Jenkins: `http://localhost:8080`.
+2. Click **New Item** -> Name: `BookBank-WebProject` -> Select **Pipeline** -> Click **OK**.
+
+STEP 2: Enter Pipeline Script
+In the project configuration, paste:
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven'
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git branch: 'master', url: 'https://github.com/savram674/BookBank.git'
+            }
+        }
+
+        stage('Build & Package WAR') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('Deploy to Tomcat') {
+            steps {
+                echo 'Deploying to Tomcat webapps...'
+                sh 'cp target/*.war /var/lib/tomcat9/webapps/BookBank.war || true'
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'target/*.war', allowEmptyArchive: true
+        }
+    }
+}
+
+STEP 3: Run the Pipeline Build
+1. Click **Build Now**.
+2. Verify **Stage View** shows all green blocks.
+
+STEP 4: Create Jenkins Pipeline View
+1. On the Jenkins home dashboard, click the `+` icon on the tab bar.
+2. Enter View Name: `BookBank-Pipeline-View`.
+3. Select **Pipeline View** (or **Build Pipeline View**).
+4. Click **Create**, choose initial job `BookBank-WebProject`, and click **OK**.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins **Pipeline View** displaying the visual pipeline stages in green.
+2. **Console Output** ending with `[INFO] BUILD SUCCESS` and `Finished: SUCCESS`.
+3. Click on the archived `BookBank.war` under artifacts.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q1.5: Steps to install a plugin in Jenkins UI and compatibility considerations:
+  - Steps:
+    1. Navigate to **Manage Jenkins** -> **Plugins** (or Manage Plugins).
+    2. Click on the **Available plugins** tab.
+    3. Search for the desired plugin (e.g. "Git", "Maven Integration").
+    4. Check the checkbox and click **Install without restart** (or Download now and install after restart).
+  - Compatibility & Update Considerations:
+    1. Check Jenkins Core version compatibility (plugins often require a minimum Jenkins core version).
+    2. Check dependencies (many plugins depend on other core plugins).
+    3. Take a Jenkins backup (`JENKINS_HOME`) before major plugin updates.
+    4. Review release notes / changelogs for breaking changes or deprecations.
+
+--------------------------------------------------------------------------------
+Q2. Docker Compose for a Multi-Container Docker Image [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Run Smart Assessment Hub (`savram674/eduassesspro`), Tomcat, and MySQL with persistent volumes. Login, create tables, insert data, and verify persistence.
+
+STEP 1: Create a dedicated directory
+Execute in terminal:
+  mkdir -p ~/set7_task2
+  cd ~/set7_task2
+
+STEP 2: Create Docker Compose configuration (docker-compose.yml)
+Execute in terminal:
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  eduassess-app:
+    image: savram674/eduassesspro:latest
+    container_name: eduassess-app
+    restart: always
+    ports:
+      - "8082:8080"
+    depends_on:
+      - mysql-db
+    networks:
+      - edu-net
+
+  tomcat-server:
+    image: tomcat:9.0-jdk11-openjdk-slim
+    container_name: eduassess-tomcat
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - edu-net
+
+  mysql-db:
+    image: mysql:8.0
+    container_name: eduassess-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: assessment_db
+      MYSQL_USER: eduuser
+      MYSQL_PASSWORD: edupassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - edu_mysql_data:/var/lib/mysql
+    networks:
+      - edu-net
+
+volumes:
+  edu_mysql_data:
+    driver: local
+
+networks:
+  edu-net:
+    driver: bridge
+EOF
+
+STEP 3: Start containers
+Execute in terminal:
+  docker compose up -d
+
+STEP 4: Verify containers and test MySQL data persistence
+Execute in terminal:
+  docker compose ps
+  # Login to MySQL and create table / insert records:
+  docker exec -it eduassess-mysql mysql -u root -prootpassword -e "USE assessment_db; CREATE TABLE tests (id INT PRIMARY KEY, name VARCHAR(50), max_score INT); INSERT INTO tests VALUES (101, 'SE Lab Test', 100); SELECT * FROM tests;"
+
+STEP 5: Test persistence by stopping and restarting MySQL
+Execute in terminal:
+  docker stop eduassess-mysql
+  docker start eduassess-mysql
+  # Re-login to ensure saved tables:
+  docker exec -it eduassess-mysql mysql -u root -prootpassword -e "USE assessment_db; SELECT * FROM tests;"
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `docker compose ps` showing `eduassess-app`, `eduassess-tomcat`, and `eduassess-mysql` in "Up" status.
+2. Terminal: Successful MySQL query output showing the `tests` table with inserted row.
+3. Terminal: Show that data persists even after restarting the container.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- Should you run Node.js backend and Python scheduled script in the same container:
+  Answer: **No, they should run in separate containers**.
+  Docker best practices recommend "one process per container". Running them separately provides:
+  1. Process isolation and fault containment (if the Python script crashes, the Node.js backend remains operational).
+  2. Independent resource allocation and scaling.
+  3. Cleaner logging via standard stdout/stderr streams.
+  4. Separate container images and dependencies without dependency bloat or conflicts.
+
+--------------------------------------------------------------------------------
+Q3. Working with Webhooks to Trigger Builds in Jenkins [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Configure a GitHub Webhook to trigger Jenkins builds automatically on git push events.
+
+STEP 1: Enable GitHub Hook Trigger in Jenkins Project
+1. In the `BookBank-WebProject` configuration.
+2. Under **Build Triggers**, check:
+   - **GitHub hook trigger for GITScm polling**.
+3. Click **Save**.
+
+STEP 2: Configure Webhook in GitHub Repository
+1. Go to your GitHub repository -> **Settings** -> **Webhooks** -> **Add webhook**.
+2. **Payload URL**: `http://<YOUR-JENKINS-PUBLIC-IP>:8080/github-webhook/`
+3. **Content type**: `application/json`
+4. Which events would you like to trigger this webhook?
+   - Select **Just the push event**.
+5. Click **Add webhook**.
+
+STEP 3: Trigger Build via Code Change
+1. Make a small edit in GitHub (e.g. edit `README.md` or a comment in a file) and commit.
+2. Observe Jenkins: Within seconds, a new build is automatically triggered without manual intervention!
+3. Open the newly spawned build and verify **Console Output**.
+
+WHAT TO SHOW TO MAM:
+1. GitHub Webhook settings page showing green checkmark next to `http://<jenkins-url>:8080/github-webhook/`.
+2. Jenkins build history showing the build triggered by `Started by GitHub push by <username>`.
+3. Jenkins Console Output of the auto-triggered build.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q3.4: Role of Jenkins in a CI/CD pipeline:
+  - Jenkins serves as the central orchestration engine that automates every phase of the software delivery lifecycle: fetching code from VCS, compiling, running unit tests, performing code quality checks, packaging artifacts (JAR/WAR/Docker images), and deploying to staging/production environments.
+Q3.5: Different types of build triggers available in Jenkins:
+  1. **GitHub hook trigger for GITScm polling (Webhooks)**: Instant trigger via HTTP POST when code is pushed to GitHub.
+  2. **Poll SCM**: Jenkins periodically polls the repository for changes using cron syntax (e.g. `H/5 * * * *`).
+  3. **Build periodically**: Scheduled cron builds regardless of code changes (e.g. nightly builds).
+  4. **Trigger builds remotely (e.g. via scripts / API token)**: Triggered using a web URL and authentication token.
+  5. **Build after other projects are built**: Upstream/downstream job chaining.
+
+--------------------------------------------------------------------------------
+Q4. Create an EC2 Instance with Ubuntu and Deploy an Application [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy `https://github.com/savram674/EduAssessPro.git` on AWS EC2 Ubuntu instance using Docker and verify via EC2 Public IPv4.
+
+STEP 1: Launch EC2 Instance (AWS Console)
+1. AMI: Ubuntu 22.04 LTS (t2.micro).
+2. Key pair: `eduassess-key.pem`.
+3. Security Group Rules:
+   - SSH (Port 22, Source: 0.0.0.0/0)
+   - Custom TCP (Port 8080, Source: 0.0.0.0/0)
+
+STEP 2: Connect to EC2 via SSH
+  ssh -i eduassess-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Docker and Git on EC2
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y docker.io git
+  sudo systemctl start docker
+  sudo systemctl enable docker
+  sudo usermod -aG docker ubuntu
+  newgrp docker
+
+STEP 4: Clone Repository and Build Application Dockerfile
+Execute on EC2:
+  git clone https://github.com/savram674/EduAssessPro.git
+  cd EduAssessPro
+
+  cat << 'EOF' > Dockerfile
+FROM maven:3.8.4-openjdk-17-slim AS build
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+FROM tomcat:9.0-jdk17-slim
+WORKDIR /usr/local/tomcat/webapps/
+RUN rm -rf /usr/local/tomcat/webapps/ROOT
+COPY --from=build /app/target/*.war ./ROOT.war
+EXPOSE 8080
+CMD ["catalina.sh", "run"]
+EOF
+
+STEP 5: Build Image and Run Container
+Execute on EC2:
+  docker build -t eduassess-web:v1 .
+  docker run -d --name eduassess-container -p 8080:8080 --restart=always eduassess-web:v1
+
+STEP 6: Verify and Access
+Execute on EC2:
+  docker ps
+  curl http://localhost:8080
+
+STEP 7: Access in Browser
+  Open browser: http://<EC2-PUBLIC-IP>:8080/
+
+WHAT TO SHOW TO MAM:
+1. AWS Console: Running Ubuntu EC2 instance and its Public IPv4 address.
+2. Security Groups: Inbound rule permitting Port 8080.
+3. EC2 terminal: `docker ps` showing `eduassess-container` running.
+4. Browser: Open `http://<EC2-PUBLIC-IP>:8080/` showing the EduAssess application.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q4.7: Where will you place the .war file in Tomcat and why:
+  - Location: Inside Tomcat's `webapps/` directory (`/var/lib/tomcat9/webapps/` or `/usr/local/tomcat/webapps/`).
+  - Reason: Tomcat's background deployment scanner monitors `webapps/`. Placing a `.war` file there causes Tomcat to automatically unpack the archive into a folder matching the WAR name and mount the application at that context path (or as the default root application if named `ROOT.war`).
+Q4.8: Maven needs external dependencies but EC2 has no internet — AWS service or change:
+  - Solution 1: If EC2 is in a private subnet, attach an **AWS NAT Gateway** residing in a public subnet with an updated Route Table (`0.0.0.0/0 -> nat-gateway-id`) to allow secure outbound internet access without exposing the instance to inbound traffic.
+  - Solution 2: Use **AWS CodeArtifact** or an internal private artifact repository (e.g. Nexus/Artifactory) configured within the VPC with an **AWS VPC Endpoint**.
+================================================================================
+
+================================================================================
+                     SET-8 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+GitHub Repository: https://github.com/deepthisagar7/AI-OLMS.git
+
+--------------------------------------------------------------------------------
+1. Docker – Multi-Container Application [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Run AI-OLMS Java web application and MySQL database in separate containers with communication and persistent storage.
+
+STEP 1: Create a dedicated directory
+Execute in terminal:
+  mkdir -p ~/set8_task1
+  cd ~/set8_task1
+
+STEP 2: Clone repository & build WAR
+Execute in terminal:
+  git clone https://github.com/deepthisagar7/AI-OLMS.git
+  cd AI-OLMS
+  mvn clean package
+
+STEP 3: Create Docker Compose configuration (docker-compose.yml)
+Execute in terminal:
+  cd ~/set8_task1
+  cat << 'EOF' > docker-compose.yml
+version: '3.8'
+
+services:
+  olms-db:
+    image: mysql:8.0
+    container_name: ai-olms-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: olmsrootpassword
+      MYSQL_DATABASE: olms_db
+      MYSQL_USER: olms_user
+      MYSQL_PASSWORD: olms_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - olms_db_data:/var/lib/mysql
+    networks:
+      - olms-net
+
+  olms-web:
+    image: tomcat:9.0-jdk11-openjdk-slim
+    container_name: ai-olms-tomcat
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./AI-OLMS/target/*.war:/usr/local/tomcat/webapps/AI-OLMS.war
+    depends_on:
+      - olms-db
+    networks:
+      - olms-net
+
+volumes:
+  olms_db_data:
+    driver: local
+
+networks:
+  olms-net:
+    driver: bridge
+EOF
+
+STEP 4: Run the containers
+Execute in terminal:
+  docker compose up -d
+
+STEP 5: Verify containers and test MySQL data persistence
+Execute in terminal:
+  docker compose ps
+  docker exec -it ai-olms-mysql mysql -u root -polmsrootpassword -e "USE olms_db; CREATE TABLE IF NOT EXISTS courses (id INT PRIMARY KEY, course_name VARCHAR(50)); INSERT INTO courses VALUES (1, 'Cloud DevOps'); SELECT * FROM courses;"
+
+STEP 6: Access through browser
+  Open browser: http://localhost:8080/AI-OLMS/
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `docker compose ps` showing `ai-olms-mysql` and `ai-olms-tomcat` both "Up".
+2. Terminal: Show persistent volume `olms_db_data` and SQL execution output showing courses.
+3. Browser: Open `http://localhost:8080/AI-OLMS/` showing the AI-OLMS portal.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- What happens if MySQL container stops: The application cannot query courses or authenticate students, throwing database connection errors on the web interface.
+- Preserve student/course data after deleting MySQL container: Use Docker named persistent volumes (`olms_db_data:/var/lib/mysql`).
+- Why separate containers: Independent scaling, loose coupling, modular maintenance, and security boundary isolation.
+- Protect student credentials: Store passwords hashed (bcrypt/argon2), never commit credentials to GitHub, use environment variables, and avoid exposing port 3306 externally.
+- Troubleshoot DB connection: Verify MySQL container is running (`docker ps`), ping `olms-db` hostname from Tomcat container, verify credentials and port 3306.
+
+--------------------------------------------------------------------------------
+2. Jenkins – Freestyle Project [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Configure a Jenkins Freestyle Project to pull `https://github.com/deepthisagar7/AI-OLMS.git`, build with Maven, and archive the generated WAR file.
+
+STEP 1: Create Freestyle Project
+1. Open Jenkins: `http://localhost:8080`.
+2. Click **New Item** -> Name: `AI-OLMS-Freestyle` -> Select **Freestyle project** -> Click **OK**.
+
+STEP 2: Configure Git Repository
+1. SCM: Select **Git**.
+2. Repository URL: `https://github.com/deepthisagar7/AI-OLMS.git`
+3. Branch Specifier: `*/main` (or `*/master`).
+
+STEP 3: Configure Build Triggers
+1. Check **Poll SCM** -> Schedule: `H/5 * * * *` (or `* * * * *`).
+
+STEP 4: Configure Build Steps
+1. Click **Add build step** -> **Invoke top-level Maven targets**.
+   - Goals: `clean package`
+   (Or Execute shell: `mvn clean package`).
+
+STEP 5: Configure Post-Build Actions
+1. Add post-build action -> **Archive the artifacts**.
+   - Files to archive: `target/*.war`
+2. Click **Save**.
+
+STEP 6: Run Build and Verify
+1. Click **Build Now**.
+2. Click latest build -> **Console Output** to verify `BUILD SUCCESS`.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins job page showing green/blue successful status ball.
+2. **Console Output** ending with `[INFO] BUILD SUCCESS` and `Finished: SUCCESS`.
+3. Archived artifact: `AI-OLMS.war` visible under build artifacts.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- If developer introduces compilation errors: Maven compiler plugin aborts the build, Jenkins marks build as FAILED (red), and logs exact line number in Console Output.
+- How Jenkins detects GitHub changes: Through SCM polling (`Poll SCM`) or instant push notification via GitHub Webhooks.
+- Difference between generating WAR and deploying on Tomcat: Generating a WAR packages Java bytecodes, web assets, and descriptors into an archive. Deploying extracts and mounts that archive into Tomcat's runtime for web serving.
+- Why Maven is useful: Automates dependency fetching, eliminates manual JAR version clashes, and enforces standard project lifecycle.
+- Identify and resolve failed Jenkins build: Inspect Console Output for `[ERROR]`, fix code or `pom.xml`, commit changes, and trigger a new build.
+
+--------------------------------------------------------------------------------
+3. System Monitoring using Nagios [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Run Nagios Core via Docker, configure host and service monitoring (CPU, RAM, uptime, HTTP), and view dashboard status.
+
+STEP 1: Run Nagios Core in Docker
+Execute in terminal:
+  docker run -d --name olms-nagios -p 8085:80 jasonrivers/nagios:latest
+
+STEP 2: Access Nagios Web Dashboard
+1. Open browser: `http://localhost:8085`
+2. Credentials: Username: `nagiosadmin` | Password: `nagios`
+
+STEP 3: View Monitored Services
+1. Click **Hosts**: Shows `localhost` (UP).
+2. Click **Services**: Shows HTTP, PING, SSH, Load, Disk (all OK/Green).
+
+WHAT TO SHOW TO MAM:
+1. Nagios Web Interface at `http://localhost:8085`.
+2. Hosts list showing Host Status **UP** in green.
+3. Services table showing all active checks in **OK** green status.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- How Nagios identifies if server is running or down: Periodic ICMP `check_ping` checks.
+- Difference between WARNING and CRITICAL: WARNING means metric is elevated above normal threshold; CRITICAL signifies outage or dangerous limit.
+- If CPU reaches 100%: `check_load` plugin triggers CRITICAL alert.
+- Detect app failure when server is running: `check_http` validates HTTP 200 response codes on port 8080. If Tomcat fails, check fails even if server OS is running.
+- Identify if problem is Tomcat, MySQL, or server: If Host is UP and MySQL is OK, but HTTP check fails, the issue is isolated to Tomcat.
+
+--------------------------------------------------------------------------------
+4. Container Scaling using Kubernetes [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy AI-OLMS on Minikube, scale replicas, verify status, and demonstrate automatic pod recreation.
+
+STEP 1: Start Minikube
+Execute in terminal:
+  minikube start --driver=docker
+
+STEP 2: Create Deployment with 2 Replicas
+Execute in terminal:
+  kubectl create deployment ai-olms-deploy --image=nginx --replicas=2
+
+STEP 3: Expose Deployment via NodePort Service
+Execute in terminal:
+  kubectl expose deployment ai-olms-deploy --type=NodePort --port=8080 --target-port=80 --name=ai-olms-svc
+
+STEP 4: Scale Deployment to 5 Replicas
+Execute in terminal:
+  kubectl scale deployment ai-olms-deploy --replicas=5
+
+STEP 5: Verify Deployment, Pods, and Services
+Execute in terminal:
+  kubectl get deployments
+  kubectl get pods -o wide
+  kubectl get svc ai-olms-svc
+
+STEP 6: Demonstrate Automatic Pod Recreation (Self-Healing)
+Execute in terminal:
+  kubectl delete pod <pod-name-from-kubectl-get-pods>
+  kubectl get pods
+
+WHAT TO SHOW TO MAM:
+1. Terminal: `kubectl get deployments` showing `ai-olms-deploy` with `READY 5/5`.
+2. Terminal: `kubectl get pods -o wide` showing 5 active pods running.
+3. Terminal: Show deletion of 1 pod and automatic creation of a new replacement pod by ReplicaSet.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- If one pod crashes during online exam: The ReplicaSet reconciliation loop detects the missing pod and immediately launches a new pod to keep desired replicas at 5.
+- How Kubernetes maintains desired replicas: ReplicaSet controller continuously reconciles Desired State with Actual State.
+- Scaling up vs Scaling down: Scaling up provisions more pods to handle peak exam loads; scaling down removes excess pods after exams to save compute.
+- Improve performance during exams: Distributes concurrent exam submissions across multiple pods so no single container is overwhelmed.
+- Service distributes incoming requests: Kubernetes Service utilizes `kube-proxy` load-balancing (iptables/IPVS) to distribute traffic round-robin across pod endpoints.
+
+--------------------------------------------------------------------------------
+5. AWS Deployment using EC2 [20 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy AI-OLMS on an AWS Ubuntu EC2 instance, configure Security Groups, and access via EC2 Public IPv4.
+
+STEP 1: Launch EC2 Instance (AWS Console)
+1. AMI: Ubuntu 22.04 LTS (t2.micro).
+2. Key pair: `olms-key.pem`.
+3. Security Group Rules:
+   - SSH (Port 22, Source 0.0.0.0/0)
+   - Custom TCP (Port 8080, Source 0.0.0.0/0)
+
+STEP 2: Connect to EC2 via SSH
+  ssh -i olms-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Java, Maven, and Tomcat
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y openjdk-17-jdk maven tomcat9
+  sudo systemctl start tomcat9
+
+STEP 4: Clone Repository and Deploy WAR
+Execute on EC2:
+  git clone https://github.com/deepthisagar7/AI-OLMS.git
+  cd AI-OLMS
+  mvn clean package
+  sudo cp target/*.war /var/lib/tomcat9/webapps/AI-OLMS.war
+  sudo systemctl restart tomcat9
+
+STEP 5: Access Application
+  Open browser: http://<EC2-PUBLIC-IP>:8080/AI-OLMS/
+
+WHAT TO SHOW TO MAM:
+1. AWS EC2 Console showing Running instance and Public IPv4 address.
+2. Security Groups showing inbound rule for Port 8080.
+3. EC2 terminal showing `mvn clean package` BUILD SUCCESS.
+4. Browser showing AI-OLMS portal on `http://<EC2-PUBLIC-IP>:8080/AI-OLMS/`.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+- Reasons if students cannot access via Public IP: Security Group lacks port 8080 rule, Tomcat is stopped, or public IP changed after instance stop/start.
+- Why configure HTTP and Tomcat ports in Security Group: Security Groups are virtual firewalls blocking all unlisted traffic; ports 80 and 8080 must be explicitly allowed.
+- What happens if Tomcat stops while EC2 runs: SSH still works, but web traffic returns "Connection Refused".
+- Make application available if EC2 fails: Use an **Application Load Balancer (ALB)** with an **Auto Scaling Group (ASG)** spanning multiple Availability Zones.
+- Advantages of AWS over local server: Elastic scalability, 99.99% availability, automated snapshots, DDoS protection, and global reach.
+================================================================================
+
+================================================================================
+                     SET-9 : COMPLETE STEP-BY-STEP LAB GUIDE
+           KMIT - Software Engineering Lab Internal II (A.Y 2026-2027)
+================================================================================
+
+--------------------------------------------------------------------------------
+Q1. Jenkins Pipeline for a Java Project [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Automate the build of Maven Java project (https://github.com/savram674/MJP.git) using a Jenkins Declarative Pipeline, display the Pipeline View, and list 5 microservices plugins.
+
+STEP 1: Open Jenkins Web Interface
+  Open browser: `http://localhost:8080` (or Jenkins server IP).
+
+STEP 2: Create a New Pipeline Project
+1. Click **New Item** on the left menu.
+2. Enter Item Name: `JavaMavenPipeline`
+3. Select **Pipeline** (not Freestyle) and click **OK**.
+
+STEP 3: Configure Pipeline Script
+1. Scroll down to the **Pipeline** section.
+2. Select Definition: **Pipeline script**.
+3. In the script editor box, paste the following declarative pipeline:
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'Maven'  // Name of Maven tool configured in Manage Jenkins -> Tools
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                echo 'Pulling code from GitHub repository...'
+                git branch: 'master', url: 'https://github.com/savram674/MJP.git'
+            }
+        }
+
+        stage('Compile') {
+            steps {
+                echo 'Compiling Java Source files...'
+                sh 'mvn compile'  // Use 'bat "mvn compile"' if running Jenkins on Windows
+            }
+        }
+
+        stage('Run Unit Tests') {
+            steps {
+                echo 'Executing JUnit test cases...'
+                sh 'mvn test'     // Use 'bat "mvn test"' on Windows
+            }
+        }
+
+        stage('Package Application') {
+            steps {
+                echo 'Packaging application into JAR...'
+                sh 'mvn clean package'  // Use 'bat "mvn clean package"' on Windows
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline Executed Successfully! Artifacts generated in target directory.'
+        }
+        failure {
+            echo 'Pipeline Failed! Check console log for compilation or test failures.'
+        }
+    }
+}
+
+4. Click **Save**.
+
+STEP 4: Run the Pipeline Build
+1. Click **Build Now** on the left menu.
+2. Under "Build History", click on build `#1`.
+3. Check the "Stage View" on the project main page showing all green blocks.
+4. Click **Console Output** to verify the logs.
+
+STEP 5: Setup Pipeline View (Jenkins UI)
+1. Click the `+` (New View) icon on the Jenkins main dashboard tab bar.
+2. Enter View Name: `MJP-Pipeline-View`
+3. Select **Build Pipeline View** (or **Pipeline Stage View** / **Dashboard View**).
+4. Click **Create**, choose initial job `JavaMavenPipeline`, and click **OK**.
+
+FIVE IMPORTANT JENKINS PLUGINS FOR MICROSERVICES CI/CD:
+1. **Git Plugin**: Integrates Git version control, automatically triggering builds on commits, pull requests, and polling branches.
+2. **Pipeline Maven Integration Plugin**: Automatically records Maven builds, test results, and dependencies, optimizing artifact caching across microservice pipelines.
+3. **Docker Pipeline Plugin**: Enables building Docker container images, running containers as build agents, and pushing microservice images to container registries (Docker Hub/ECR).
+4. **Kubernetes Continuous Deploy (or Kubernetes CLI Plugin)**: Automates rolling updates and zero-downtime deployment of microservice container pods to Kubernetes clusters.
+5. **SonarQube Scanner Plugin**: Performs automated static code analysis, code coverage, vulnerability detection, and enforces quality gates for each microservice before deployment.
+
+WHAT TO SHOW TO MAM:
+1. Jenkins **Stage View / Pipeline View** showing all stages (Checkout Code -> Compile -> Run Unit Tests -> Package Application) marked with green boxes.
+2. **Console Output**: Scroll to bottom showing:
+   `[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0`
+   `[INFO] BUILD SUCCESS`
+   `Finished: SUCCESS`
+3. The 5 Jenkins plugins with their microservice purposes explained.
+
+--------------------------------------------------------------------------------
+Q2. Working with Minikube (Nginx Service Deployment) [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Nginx on Minikube, expose on port 8090, scale to 4 replicas, verify in browser and CLI, demonstrate pod and deployment deletion, and troubleshoot health check failures.
+
+STEP 1: Start Minikube
+Execute in terminal:
+  minikube start --driver=docker
+
+STEP 2: Create Nginx Deployment
+Execute in terminal:
+  kubectl create deployment nginx-service-deploy --image=nginx
+
+STEP 3: Expose Service on Port 8090
+Execute in terminal:
+  kubectl expose deployment nginx-service-deploy --type=NodePort --port=8090 --target-port=80 --name=nginx-8090-svc
+
+STEP 4: Scale the Deployment to 4 Replicas
+Execute in terminal:
+  kubectl scale deployment nginx-service-deploy --replicas=4
+
+STEP 5: Verify Deployment, Nodes, Pods, and Services
+Execute in terminal:
+  kubectl get deployments
+  kubectl get nodes
+  kubectl get pods -o wide
+  kubectl get svc nginx-8090-svc
+
+STEP 6: Verify in Browser on localhost:8090
+Execute in terminal:
+  # Forward port 8090 to local port 8090:
+  kubectl port-forward svc/nginx-8090-svc 8090:8090
+  # Now open your browser and visit:
+  # http://localhost:8090
+
+STEP 7: Demonstrate Deleting a Pod (Self-Healing Demo)
+Execute in terminal:
+  # Copy one pod name from kubectl get pods:
+  kubectl delete pod <pod-name-from-step-5>
+  # Immediately run:
+  kubectl get pods
+  # Note: ReplicaSet immediately provisions a brand-new Pod in replacement!
+
+STEP 8: Demonstrate Deleting the Deployment
+Execute in terminal:
+  kubectl delete deployment nginx-service-deploy
+  kubectl delete svc nginx-8090-svc
+  kubectl get pods  # (Shows pods terminating)
+
+WHAT TO SHOW TO MAM:
+1. Terminal: Output of `kubectl get deployments` showing `nginx-service-deploy` with `READY 4/4`.
+2. Terminal: Output of `kubectl get pods -o wide` showing 4 pods in `Running` state across nodes.
+3. Terminal: Output of `kubectl get svc` showing `nginx-8090-svc` with port `8090`.
+4. Browser: Open `http://localhost:8090` showing the "Welcome to nginx!" default landing page.
+5. Deletion Demo: Delete 1 pod in front of examiner using `kubectl delete pod <name>` and run `kubectl get pods` to show self-healing (new pod spawned).
+
+SCENARIO ANSWER (Q2.6 - Pods failing health checks):
+- How to identify root cause:
+  1. Run `kubectl describe pod <pod-name>`: Check the "Events" section at the bottom for `Unhealthy: Liveness/Readiness probe failed HTTP status 500/404` or `Connection refused`.
+  2. Run `kubectl logs <pod-name>` or `kubectl logs <pod-name> --previous`: Inspect application logs to check if the app crashed, deadlocked, or encountered runtime exceptions.
+  3. Verify probe settings: Check if probe endpoint path (`/healthz`), port, `initialDelaySeconds`, `timeoutSeconds`, or `periodSeconds` are set incorrectly before the app finishes initializing.
+- How to fix it:
+  1. Increase `initialDelaySeconds` in deployment YAML so slow-starting containers have enough time to boot.
+  2. Correct port or health endpoint path in liveness/readiness probe definition.
+  3. Resolve application exceptions or database connection failures detected in the pod logs.
+
+--------------------------------------------------------------------------------
+Q3. Nagios – Host and Service Monitoring [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Set up Nagios using Docker, start web interface, demonstrate host & service monitoring status, and troubleshoot connection and host discovery issues.
+
+STEP 1: Run Nagios Core in Docker
+Execute in terminal:
+  docker run -d --name nagios-monitor -p 8080:80 jasonrivers/nagios:latest
+
+STEP 2: Verify Nagios Container is Running
+Execute in terminal:
+  docker ps -f name=nagios-monitor
+  docker logs nagios-monitor
+
+STEP 3: Access Nagios Web Interface
+1. Open web browser: `http://localhost:8080` (or `http://<ec2-ip>:8080`)
+2. Enter default login credentials:
+   - Username: `nagiosadmin`
+   - Password: `nagios`
+
+STEP 4: Demonstrate Monitoring Status and Status Meanings
+1. In the left navigation pane under **Current Status**:
+   - Click **Hosts**:
+     Shows `localhost` host status as **UP** (highlighted in Green).
+   - Click **Services**:
+     Shows critical service checks for localhost:
+     * HTTP: OK (Green)
+     * PING: OK (Green)
+     * SSH: OK (Green)
+     * Root Partition: OK (Green)
+     * Current Load: OK (Green)
+     * Total Processes: OK (Green)
+2. Explanation of Status Indicators:
+   - **UP / OK (Green)**: Host/Service is healthy and operating within threshold parameters.
+   - **WARNING (Yellow)**: Service is operational but has crossed warning threshold (e.g. high CPU load or 80% disk full).
+   - **CRITICAL (Red)**: Service has failed, crashed, or crossed critical limit (e.g. service unresponsive, 95% disk full).
+   - **UNKNOWN (Orange)**: Nagios plugin cannot determine status (e.g. check plugin missing or timed out).
+   - **PENDING (Grey)**: Service has recently been registered and has not undergone its first active check cycle.
+
+WHAT TO SHOW TO MAM:
+1. Browser: Nagios Web Dashboard at `http://localhost:8080/nagios/`.
+2. Navigation: Click **Hosts** to display `localhost` marked **UP** in green.
+3. Navigation: Click **Services** to show the table of services (HTTP, PING, SSH, Load, Disk) with Status **OK** in green.
+4. Terminal: Show `docker ps` displaying `nagios-monitor` container running on port 8080.
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q3.4: Web interface displays "Unable to connect to Nagios process":
+  - Root Cause: The core Nagios daemon (`/usr/local/nagios/bin/nagios`) has stopped running or crashed, even though the Apache web server hosting the PHP/CGI interface is still up.
+  - How to resolve:
+    1. Check Nagios service status inside container:
+       `docker exec -it nagios-monitor service nagios status`
+    2. Start the Nagios service:
+       `docker exec -it nagios-monitor service nagios start`
+    3. Check for stale lock file `/usr/local/nagios/var/nagios.lock` and remove it if process died abruptly.
+    4. Inspect `/usr/local/nagios/var/nagios.log` for segmentation faults or configuration load errors.
+Q3.5: Added a new host in Nagios, but it is not appearing on the web interface:
+  - How to check:
+    1. Pre-flight verification: Run the Nagios configuration pre-flight check to test for syntax errors:
+       `docker exec -it nagios-monitor /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg`
+    2. Confirm host config inclusion: Verify that `cfg_file` or `cfg_dir` directive in `/usr/local/nagios/etc/nagios.cfg` points to your newly created host file.
+    3. Restart/reload daemon: Nagios does not automatically reload on file edits. You must reload or restart:
+       `docker exec -it nagios-monitor service nagios reload` (or `restart`).
+    4. Contact / Group permissions: Ensure the host definition assigns `contact_groups` that include `nagiosadmin`, otherwise the user cannot see it in the UI due to CGI authorization filters (`cgi.cfg`).
+
+--------------------------------------------------------------------------------
+Q4. AWS EC2 – Launch and Deploy a Web Application [25 Marks]
+--------------------------------------------------------------------------------
+
+OVERVIEW:
+Deploy Maven Web Application (https://github.com/savram674/BookBank.git) on an Ubuntu EC2 instance, build Docker image, start container, and access via EC2 Public IPv4.
+
+STEP 1: Launch EC2 Instance & Configure Security Group
+1. AWS Console -> EC2 -> Launch Instance.
+2. Name: `BookBank-Server`
+3. AMI: Ubuntu Server 22.04 LTS (HVM), SSD Volume Type.
+4. Instance Type: t2.micro (Free Tier eligible).
+5. Key Pair: Select existing key or create new `.pem` key.
+6. Network / Security Group Rules:
+   - Allow SSH: Port 22 | Source: 0.0.0.0/0
+   - Allow Custom TCP: Port 8080 | Source: 0.0.0.0/0
+   - Allow HTTP: Port 80 | Source: 0.0.0.0/0
+
+STEP 2: Connect to EC2 via SSH
+  ssh -i your-key.pem ubuntu@<EC2-PUBLIC-IP>
+
+STEP 3: Install Docker and Git on EC2
+Execute on EC2:
+  sudo apt update -y
+  sudo apt install -y docker.io git
+  sudo systemctl start docker
+  sudo systemctl enable docker
+  sudo usermod -aG docker ubuntu
+  # Apply new group membership:
+  newgrp docker
+
+STEP 4: Clone the BookBank GitHub Repository
+Execute on EC2:
+  cd ~
+  git clone https://github.com/savram674/BookBank.git
+  cd BookBank
+
+STEP 5: Create a Multi-Stage Dockerfile to Build and Run BookBank
+Execute on EC2:
+  cat << 'EOF' > Dockerfile
+# Stage 1: Build Maven WAR
+FROM maven:3.8.4-openjdk-17-slim AS builder
+WORKDIR /app
+COPY pom.xml .
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+# Stage 2: Deploy to Apache Tomcat
+FROM tomcat:9.0-jdk17-slim
+WORKDIR /usr/local/tomcat/webapps/
+RUN rm -rf /usr/local/tomcat/webapps/ROOT
+# Copy generated war as ROOT.war for direct root context access
+COPY --from=builder /app/target/BookBank.war ./ROOT.war
+EXPOSE 8080
+CMD ["catalina.sh", "run"]
+EOF
+
+STEP 6: Build the Docker Image
+Execute on EC2:
+  docker build -t bookbank-app:v1 .
+
+STEP 7: Run the Application Container
+Execute on EC2:
+  docker run -d --name bookbank-container -p 8080:8080 --restart=always bookbank-app:v1
+
+STEP 8: Verify Container and Access Application
+Execute on EC2:
+  docker ps
+  docker logs bookbank-container
+  curl http://localhost:8080
+
+STEP 9: Access in Browser
+  Open browser: http://<EC2-PUBLIC-IP>:8080/
+  (or http://<EC2-PUBLIC-IP>:8080/login.jsp)
+
+WHAT TO SHOW TO MAM:
+1. AWS EC2 Console: Show the Running Ubuntu instance details with its Public IPv4 address.
+2. Security Groups: Show the Inbound Rule permitting Port 8080 from 0.0.0.0/0.
+3. Terminal on EC2: Run `docker ps` showing `bookbank-container` mapped to `0.0.0.0:8080->8080/tcp` with status "Up".
+4. Web Browser: Open `http://<EC2-PUBLIC-IP>:8080/` showing the BookBank application (index / login JSP page).
+
+SCENARIO-BASED ANSWERS FOR VIVA / LAB EVALUATION:
+Q4.5: Steps to install Maven on Ubuntu and Amazon Linux EC2:
+  - On Ubuntu EC2:
+    `sudo apt update -y`
+    `sudo apt install -y openjdk-17-jdk maven`
+    Verify: `mvn -version`
+  - On Amazon Linux 2023 EC2:
+    `sudo dnf update -y`
+    `sudo dnf install -y java-17-amazon-corretto maven`
+    Verify: `mvn -version`
+Q4.6: Which EC2 feature automates deployment of index.html whenever instance restarts:
+  - For Initial Launch: **EC2 User Data (User Data shell script)** under Advanced Details during instance launch automatically executes scripts with root privileges on the first boot.
+  - For Every Instance Restart / Reboot:
+    1. **EC2 User Data with Cloud-init MIME multi-part script**: Configure cloud-init `runcmd` with `[always]` frequency so it executes on every reboot.
+    2. **Crontab `@reboot`**: Add an entry to root's crontab:
+       `@reboot /bin/bash /home/ubuntu/deploy.sh`
+    3. **Systemd Service Unit**: Create a custom systemd service in `/etc/systemd/system/auto-deploy.service` with `WantedBy=multi-user.target` that executes the deployment script on every system startup.
+================================================================================
+
